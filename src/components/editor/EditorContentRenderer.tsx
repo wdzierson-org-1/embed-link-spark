@@ -22,6 +22,8 @@ interface EditorContentRendererProps {
   onUpdate: (editor: EditorInstance) => void;
   onFocus?: (editor: EditorInstance) => void;
   onBlur?: (editor: EditorInstance) => void;
+  /** The instance as soon as it exists — an empty note never fires an update */
+  onCreate?: (editor: EditorInstance) => void;
 }
 
 const EditorContentRenderer = ({
@@ -31,6 +33,7 @@ const EditorContentRenderer = ({
   inline = false,
   uploadFn,
   onUpdate,
+  onCreate,
   onFocus,
   onBlur
 }: EditorContentRendererProps) => {
@@ -70,6 +73,7 @@ const EditorContentRenderer = ({
       <EditorRoot key={editorKey}>
         <EditorContent
           initialContent={initialContent}
+          onCreate={onCreate ? ({ editor }: { editor: EditorInstance }) => onCreate(editor) : undefined}
           extensions={extensions}
           className={isMaximized ? "flex-1 w-full max-w-none overflow-y-auto" : "flex-1 w-full max-w-none overflow-y-auto"}
           editorProps={{

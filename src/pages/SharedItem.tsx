@@ -9,6 +9,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import ItemWindowBar from '@/components/edit/ItemWindowBar';
 import EditItemLinkSection from '@/components/EditItemLinkSection';
 import EditItemImageStage from '@/components/edit/EditItemImageStage';
+import EditItemEmbedStage from '@/components/edit/EditItemEmbedStage';
+import { embedFor } from '@/utils/embeds';
 import EditItemMediaZone from '@/components/edit/EditItemMediaZone';
 import EditItemDocumentSection from '@/components/EditItemDocumentSection';
 import EditItemDetailsDrawer from '@/components/edit/EditItemDetailsDrawer';
@@ -145,6 +147,7 @@ const SharedItem = () => {
   const mediaUrl = publicUrlFor(save.file_path);
   const isPlayable = save.type === 'audio' || save.type === 'video';
   const hasPicture = (save.type === 'image' || save.type === 'link') && Boolean(mediaUrl);
+  const embed = save.type === 'link' ? embedFor(save.url) : null;
   const isDocument = save.type === 'document' || save.type === 'pdf';
 
   const view = (tab: ContentTabKey) => {
@@ -154,6 +157,7 @@ const SharedItem = () => {
     if (tab === 'original') {
       return save.page_body ? <ReadOnlyText text={save.page_body} capped={false} /> : <EmptyTab>No page content was captured.</EmptyTab>;
     }
+    if (save.type === 'link' && !save.attributes?.link?.transcript) return <EmptyTab>No transcript for this video yet.</EmptyTab>;
     return <TranscriptContent itemId={save.id} transcript={save.page_body} />;
   };
 
@@ -174,7 +178,11 @@ const SharedItem = () => {
           )}
 
           {isPlayable && mediaUrl && <EditItemMediaZone item={save} src={mediaUrl} title={save.title ?? undefined} />}
-          {hasPicture && <EditItemImageStage src={mediaUrl} alt={save.title || 'Picture'} />}
+          {embed ? (
+            <EditItemEmbedStage embed={embed} title={save.title ?? undefined} />
+          ) : (
+            hasPicture && <EditItemImageStage src={mediaUrl} alt={save.title || 'Picture'} />
+          )}
           {isDocument && save.file_path && (
             <div className="mt-6">
               <EditItemDocumentSection filePath={save.file_path} fileName={save.title ?? undefined} mimeType={save.mime_type ?? undefined} />

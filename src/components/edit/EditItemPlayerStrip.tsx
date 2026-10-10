@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Pause, Play } from 'lucide-react';
 import { waveformHeights } from '@/components/cards/CardBits';
 import { formatClock } from '@/utils/itemFacts';
+import { useMediaElementClock } from '@/components/edit/MediaClock';
 
 /**
  * The panel's media player (DESIGN-v2): a square ink play button with real playback,
@@ -32,6 +33,8 @@ const EditItemPlayerStrip = ({
   downloadUrl,
 }: EditItemPlayerStripProps) => {
   const audioRef = useRef<HTMLAudioElement>(null);
+  // The panel's clock: `+ note at 1:42` and `[1:42]` seeks follow this player
+  useMediaElementClock(audioRef);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);

@@ -18,6 +18,7 @@ import {
 } from 'novel';
 import { createLowlight, common } from 'lowlight';
 import { slashCommand } from './SlashCommand';
+import { TimestampLinks } from './TimestampLinks';
 import { toast } from 'sonner';
 
 interface EditorExtensionOptions {
@@ -125,6 +126,7 @@ export const createEditorExtensions = (uploadFn?: UploadFn, options?: EditorExte
     HighlightExtension.configure({
       multicolor: true,
     }),
+    TimestampLinks,
     ...(options?.inline ? [] : [CustomKeymap, GlobalDragHandle, slashCommand]),
   ];
 
@@ -216,5 +218,6 @@ export const createReadOnlyEditorExtensions = () => {
     HighlightExtension.configure({
       multicolor: true,
     }),
+    TimestampLinks,
   ];
 };

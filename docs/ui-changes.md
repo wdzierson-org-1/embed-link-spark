@@ -8,6 +8,76 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-10 · The panel plays the media: embeds, a PDF reader, a transcript tab, full size / full screen, timestamped notes
+
+Will: "move from static images on the details panel to an embedded, playable version of the
+media. for youtube videos, embed the video … for tiktoks, attempt to embed the tiktok rather than
+a screenshot. for papers/docs, insert a PDF reader and load the PDF itself. for PPTX or HTML slides,
+allow the user to step through the slides. if an embedded version of the item is not available, use
+an image"; "for videos, youtube, audio, tiktok, reels, include a new tab (beside summary and
+original content) … which includes a transcript of the media"; "media items in the detail panel
+should be able to be made full browser height/width, or full screen"; "let's start to explore
+controls that will allow for [annotation]". Decisions: Office files through Microsoft's viewer;
+the transcript tab now, the link-transcript pipeline revived (Firecrawl, spec 2026-09-05);
+timestamped notes on media first; HTML slides = both web decks and uploaded `.html`.
+
+**Contracts (all platforms):**
+- **Embeds** (`src/utils/embeds.ts` `embedFor(url)`): a link plays in place of its picture when
+  its URL is one of — YouTube (`watch?v=`, `youtu.be/`, `/shorts/` → `youtube-nocookie.com/embed/<id>`),
+  Vimeo (`player.vimeo.com/video/<id>`), Loom (`/share/<id>` → `/embed/<id>`), TikTok (only the
+  long form `/@user/video/<id>` → `tiktok.com/embed/v2/<id>`; `vm.tiktok.com` and `/t/` short links
+  carry no id and keep the picture), Instagram (`/reel|/reels|/p|/tv/<code>` → `instagram.com/<kind>/<code>/embed/`),
+  Google Slides (`/presentation/d/<id>/embed`), Figma (`figma.com/embed?url=`). Anything else
+  keeps the picture. Phone-shaped players (TikTok, Reels, Shorts) sit centred at phone width
+  (340 × 604); the rest take the stage's width at 16:9. iOS: port the same table to StashKit and
+  load the same addresses in a WKWebView.
+- **Documents** (`edit/EditItemDocumentStage` `documentKind(filePath, mime)`): `pdf` → an inline
+  reader (pdf.js; one page at a time, previous/next, `page 3 of 12`, ← → keys); `office`
+  (`pptx/ppt/docx/doc/xlsx/xls` by mime or extension) → Microsoft's viewer
+  `https://view.officeapps.live.com/op/embed.aspx?src=<public file URL>` (it fetches the file from
+  our public bucket — a third party sees the document; Will's call); `html` → the file in a frame
+  with `sandbox="allow-scripts allow-pointer-lock allow-presentation"` (an opaque origin: no
+  cookies, storage, forms, popups or navigation); anything else keeps only download/open. iOS:
+  PDFKit for PDFs, the same viewer address for Office files, a WKWebView with a non-persistent
+  store for HTML.
+- **Transcript tab for video links** (`utils/editPanelTabs.ts`, flavor-aware per spec 2026-09-05):
+  a link whose `attributes.link.flavor === 'video'` gets `summary | original content | transcript`;
+  once enrichment has captured a transcript it sets `attributes.link.transcript = { source,
+  language?, captured_at? }` and stores the transcript in `page_body`, and the tab set becomes
+  `summary | transcript` (the transcript is the original content). Until then the tab says
+  "No transcript for this video yet." Recordings keep their single `transcript` tab. **The
+  pipeline does not exist yet:** YouTube through Firecrawl once Will sets `FIRECRAWL_API_KEY`
+  (spec 2026-09-05); TikTok/Reels via Supadata later. Clients must never invent a transcript from
+  `page_body` without the flag (a YouTube page body today is navigation chrome).
+- **Timestamped notes** (`utils/timestamps.ts`): a note may carry `[m:ss]` or `[h:mm:ss]` markers
+  as **plain text** in `content`. Players make them live: a marker is a seek point into the
+  save's media, and while a player reports its position the notes head offers `+ note at 1:42`,
+  which appends `[1:42] ` to the note (a new paragraph when the note has text; the empty note's
+  first line otherwise) and focuses it. Web: `editor/TimestampLinks` decorates markers
+  (`.stash-timestamp`, `data-seconds`) and dispatches `stash:seek`; `edit/MediaClock` carries the
+  clock between the player and the notes; native `<audio>`/`<video>` and the YouTube player
+  (iframe API over postMessage) report time and seek; Vimeo/TikTok/Instagram don't (no control
+  shown). iOS: render markers tappable in the notes, seek `AVPlayer`/the YouTube web player, and
+  offer the same `+ note at` while playing.
+
+**Behaviour (web):**
+- **Stages** (`edit/StageFull`): every media stage — picture, video, embed, document — has two
+  hover cells top-right: **full size** (the item panel goes as wide as the browser and the stage
+  fills it, with an ink bar naming it and a minimize cell; Esc returns, caught before the sheet
+  can close) and **full screen** (the browser's fullscreen API on the stage). The media element
+  is never remounted: a playing video keeps playing. On the shared page the stage fills the
+  viewport instead of a sheet. The picture's replace/remove cells moved to its bottom-right.
+- The shared page (`/s/<token>`) shows the same embeds and document reader, read-only.
+- Not done: TikTok/Instagram short links (no id in the URL — resolving them is server work);
+  reveal.js/other HTML decks on the web (framing can't be verified from the browser; needs a
+  server probe of `X-Frame-Options`/`frame-ancestors`); transcripts for links (pipeline above).
+- Tests: `utils/embeds.test.ts`, `utils/timestamps.test.ts`, `utils/editPanelTabs.video.test.ts`,
+  `edit/StageFull.test.tsx`, `edit/EditItemDocumentStage.test.tsx`, `editor/TimestampLinks.test.ts`,
+  `EditItemContentSection.test.tsx` (transcript tab, `+ note at`).
+- Design: DESIGN-v2 §10 (strings), §12.8 (stages, transcript tab, timestamped notes). The
+  annotation exploration: `docs/superpowers/specs/2026-10-10-panel-annotation-exploration.md`.
+  iOS: `docs/superpowers/plans/2026-10-10-ios-plan-17-embedded-media-transcripts-annotations.md`.
+
 ## 2026-10-09 · Share links unfurl with the save's title, description and picture
 
 Will: "update our opengraph card info for items which are shared from the details panel to

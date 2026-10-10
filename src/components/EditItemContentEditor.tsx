@@ -13,15 +13,18 @@ interface EditItemContentEditorProps {
   editorInstanceKey?: string;
   isMaximized?: boolean;
   inline?: boolean;
+  /** The live Tiptap instance, for callers that insert into the note (timestamped notes) */
+  onEditorReady?: (editor: EditorInstance) => void;
 }
 
-const EditItemContentEditor = ({ 
-  content, 
-  onContentChange, 
-  itemId, 
-  editorInstanceKey, 
+const EditItemContentEditor = ({
+  content,
+  onContentChange,
+  itemId,
+  editorInstanceKey,
   isMaximized = false,
   inline = false,
+  onEditorReady,
 }: EditItemContentEditorProps) => {
   const { user, session } = useAuth();
   const isMobile = useIsMobile();
@@ -167,6 +170,7 @@ const EditItemContentEditor = ({
       inline={inline}
       onEditorReady={(editor) => {
         editorRef.current = editor;
+        onEditorReady?.(editor);
         console.log('EditItemContentEditor: Editor instance stored in ref for explicit saves', {
           isMobile,
           itemId

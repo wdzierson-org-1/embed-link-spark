@@ -42,6 +42,12 @@ export type LinkAttributes = {
   duration_s?: number;
   stars?: number;
   read_time_min?: number;
+  /**
+   * Present once a video link's transcript has been captured into `page_body` (spec
+   * 2026-09-05: YouTube captions through Firecrawl; TikTok/Instagram later). Without it a video
+   * link's `page_body` is just its page text.
+   */
+  transcript?: { source: 'youtube-captions' | string; language?: string; captured_at?: string };
 };
 
 /**

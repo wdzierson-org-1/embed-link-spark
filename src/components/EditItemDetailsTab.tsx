@@ -35,6 +35,9 @@ import EditItemSupplementalNoteSection from '@/components/EditItemSupplementalNo
 import EditItemDetailsDrawer from '@/components/edit/EditItemDetailsDrawer';
 import EditItemMediaZone from '@/components/edit/EditItemMediaZone';
 import EditItemImageStage from '@/components/edit/EditItemImageStage';
+import EditItemEmbedStage from '@/components/edit/EditItemEmbedStage';
+import { MediaClockProvider } from '@/components/edit/MediaClock';
+import { embedFor } from '@/utils/embeds';
 import { SectionHead } from '@/components/edit/EditPanelSection';
 import { CropMarks, Spinner } from '@/components/machine/Machine';
 import CollectionAttachments from '@/components/CollectionAttachments';
@@ -261,6 +264,9 @@ const EditItemDetailsTab = ({
   }, [isMobile, content, isContentLoading, editorKey, isEditorMaximized, item?.id, showInlineImage, mobileEditorReady]);
 
   // Playable source for audio/video items (external URLs pass through as-is)
+  // A link with a player of its own plays in place of its picture
+  const embed = item?.type === 'link' ? embedFor(item.url) : null;
+
   const mediaUrl = useMemo(() => {
     if (!item?.file_path || !(item.type === 'audio' || item.type === 'video')) return '';
     if (item.file_path.startsWith('http')) return item.file_path;
@@ -316,16 +322,17 @@ const EditItemDetailsTab = ({
         <EditItemMediaZone item={item} src={mediaUrl} title={title} />
       )}
 
-      {/* Inline image for image items and links with images: a stage of fixed height, so the
-          panel doesn't jump when the picture arrives */}
-      {showInlineImage && imageUrl && (
+      {/* A link's own player when it has one (YouTube, TikTok, a reel, a deck…), else its
+          picture: a stage of fixed height, so the panel doesn't jump when it arrives */}
+      {embed && <EditItemEmbedStage embed={embed} title={title} />}
+      {!embed && showInlineImage && imageUrl && (
         <EditItemImageStage
           src={imageUrl}
           alt={title || 'Content image'}
           onOpen={handleImageClick}
           controls={
             onImageChange && (
-              <div className="absolute right-3 top-3 flex gap-1.5 opacity-0 transition-opacity group-hover/image:opacity-100">
+              <div className="absolute bottom-3 right-3 flex gap-1.5 opacity-0 transition-opacity group-hover/image:opacity-100">
                 <button
                   onClick={() => imageFileInputRef.current?.click()}
                   disabled={isImageBusy}
@@ -502,13 +509,18 @@ const EditItemDetailsTab = ({
     </div>
   );
 
-  // Conditionally wrap with TabsContent only if inside Tabs
-  return isInsideTabs ? (
-    <TabsContent value="details" className="mt-0">
-      {contentComponent}
-    </TabsContent>
-  ) : (
-    contentComponent
+  // Conditionally wrap with TabsContent only if inside Tabs. The media clock spans the tab so
+  // the player and the notes (`+ note at 1:42`, `[1:42]` seeks) share it.
+  return (
+    <MediaClockProvider>
+      {isInsideTabs ? (
+        <TabsContent value="details" className="mt-0">
+          {contentComponent}
+        </TabsContent>
+      ) : (
+        contentComponent
+      )}
+    </MediaClockProvider>
   );
 };
 

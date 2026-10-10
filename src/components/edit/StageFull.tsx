@@ -1,0 +1,145 @@
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Expand, Maximize2, Minimize } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+
+/**
+ * A media stage can be made **full size** (the panel goes as wide as the browser and the stage
+ * fills it; Esc or minimize returns) or **full screen** (the browser's own fullscreen, on the
+ * stage element). DESIGN-v2 §12.8; Will, 2026-10-10: "media items in the detail panel should be
+ * able to be made full browser height/width, or full screen".
+ *
+ * Inside the item panel a provider shares the full-size flag so the sheet can widen; the stage
+ * then sits `absolute inset-0` over the sheet. Without a provider (the shared page) the stage
+ * sits `fixed inset-0` over the page.
+ */
+interface StageFullState {
+  full: boolean;
+  setFull: (full: boolean) => void;
+  position: 'absolute' | 'fixed';
+}
+
+const StageFullContext = createContext<StageFullState | null>(null);
+
+export const StageFullProvider = ({ children, onChange }: { children: React.ReactNode; onChange?: (full: boolean) => void }) => {
+  const [full, setFullState] = useState(false);
+  const setFull = useCallback(
+    (next: boolean) => {
+      setFullState(next);
+      onChange?.(next);
+    },
+    [onChange],
+  );
+  const value = useMemo<StageFullState>(() => ({ full, setFull, position: 'absolute' }), [full, setFull]);
+  return <StageFullContext.Provider value={value}>{children}</StageFullContext.Provider>;
+};
+
+export const useStageFull = (): StageFullState => {
+  const shared = useContext(StageFullContext);
+  const [local, setLocal] = useState(false);
+  const localState = useMemo<StageFullState>(() => ({ full: local, setFull: setLocal, position: 'fixed' }), [local]);
+  return shared ?? localState;
+};
+
+/** Esc leaves full size, caught before the sheet can close on it (window capture, like MaximizedSource) */
+const useEscape = (active: boolean, onEscape: () => void) => {
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (document.fullscreenElement) return; // the browser leaves fullscreen on its own
+      event.stopPropagation();
+      event.preventDefault();
+      onEscape();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [active, onEscape]);
+};
+
+const cell =
+  'grid h-9 w-9 place-items-center border border-ink bg-white text-ink transition-colors hover:bg-ink hover:text-white focus-visible:bg-ink focus-visible:text-white focus-visible:outline-none';
+
+/**
+ * The two cells on a stage (top-right, visible on hover like the picture's own controls) and the
+ * logic behind them. `stageRef` is the element that goes fullscreen.
+ */
+export const useStage = (stageRef: React.RefObject<HTMLElement>, title: string) => {
+  const { full, setFull, position } = useStageFull();
+  const [fullscreen, setFullscreen] = useState(false);
+  const leaveFull = useCallback(() => setFull(false), [setFull]);
+  useEscape(full, leaveFull);
+
+  useEffect(() => {
+    const onChange = () => setFullscreen(document.fullscreenElement === stageRef.current && stageRef.current !== null);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, [stageRef]);
+
+  // Leaving the stage (another item, the sheet closing) leaves full size too
+  useEffect(() => () => setFull(false), [setFull]);
+
+  const goFullscreen = useCallback(() => {
+    const element = stageRef.current as (HTMLElement & { webkitRequestFullscreen?: () => Promise<void> }) | null;
+    if (!element) return;
+    const request = element.requestFullscreen ?? element.webkitRequestFullscreen;
+    if (request) void request.call(element).catch(() => {});
+  }, [stageRef]);
+
+  const canFullscreen = typeof document !== 'undefined' && (document.fullscreenEnabled || Boolean((document as { webkitFullscreenEnabled?: boolean }).webkitFullscreenEnabled));
+
+  const controls = (
+    <div className="absolute right-3 top-3 z-[5] flex gap-1.5 opacity-0 transition-opacity group-hover/stage:opacity-100 group-focus-within/stage:opacity-100 [@media(hover:none)]:opacity-100">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button type="button" onClick={() => setFull(!full)} aria-label={full ? 'Exit full size' : 'Full size'} className={cell}>
+            {full ? <Minimize className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{full ? 'exit full size' : 'full size'}</TooltipContent>
+      </Tooltip>
+      {canFullscreen && !fullscreen && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button type="button" onClick={goFullscreen} aria-label="Full screen" className={cell}>
+              <Expand className="h-4 w-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">full screen</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  );
+
+  const bar = full ? (
+    <div key="bar" className="flex h-11 flex-none items-center justify-between bg-ink pl-6 pr-11 text-white">
+      <h2 className="truncate font-pixel text-pixel leading-none">{title}</h2>
+      <button
+        type="button"
+        onClick={leaveFull}
+        aria-label="Minimize"
+        className="grid h-8 w-8 flex-none place-items-center text-white transition-colors hover:bg-white hover:text-ink"
+      >
+        <Minimize className="h-4 w-4" />
+      </button>
+    </div>
+  ) : null;
+
+  /** The stage root's classes: the dotted stage at rest; the whole sheet or page when full */
+  const rootClass = full
+    ? `${position} inset-0 z-20 flex flex-col bg-background group/stage [&:fullscreen]:bg-background`
+    : 'group/stage v2-dots relative mx-2.5 mt-8 [&:fullscreen]:flex [&:fullscreen]:items-center [&:fullscreen]:justify-center [&:fullscreen]:bg-background';
+
+  return { full, fullscreen, controls, bar, rootClass, leaveFull };
+};
+
+/** Keeps a stage's element identity stable while its wrappers change: keyed children only */
+export const StageRoot = React.forwardRef<HTMLDivElement, { className: string; children: React.ReactNode; 'data-testid'?: string }>(
+  ({ className, children, ...rest }, ref) => (
+    <div ref={ref} className={className} {...rest}>
+      {children}
+    </div>
+  ),
+);
+StageRoot.displayName = 'StageRoot';
+
+export const useStageRef = () => useRef<HTMLDivElement>(null);

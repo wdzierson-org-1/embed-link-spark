@@ -165,6 +165,7 @@ const EditorContainer = ({
   return (
     <EditorContentRenderer
       initialContent={initialJsonContent}
+      onCreate={onEditorReady}
       editorKey={editorKey}
       isMaximized={isMaximized}
       inline={inline}

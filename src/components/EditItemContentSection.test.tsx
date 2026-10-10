@@ -1,5 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useEffect } from 'react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import EditItemContentSection from './EditItemContentSection';
+import { MediaClockProvider, useMediaClock } from '@/components/edit/MediaClock';
 
 const source = vi.hoisted(() => ({
   state: {} as Record<string, unknown>,
@@ -9,12 +11,23 @@ vi.mock('@/hooks/useItemSourceContent', async (importOriginal) => ({
   useItemSourceContent: () => source.state,
 }));
 // The editor is a contenteditable jsdom can't drive: a focusable stand-in that reports its props
+// and hands back a fake instance that records what gets inserted
+const editorStub = vi.hoisted(() => {
+  const inserted: string[] = [];
+  const chain = { focus: () => chain, insertContent: (content: unknown) => { inserted.push(typeof content === 'string' ? content : JSON.stringify(content)); return chain; }, run: () => true };
+  return { inserted, instance: { isEmpty: true, chain: () => chain } };
+});
 vi.mock('@/components/EditItemContentEditor', () => ({
-  default: ({ inline }: { inline?: boolean }) => (
-    <div data-testid="rich-editor" data-inline={String(Boolean(inline))} tabIndex={0}>
-      My context
-    </div>
-  ),
+  default: ({ inline, onEditorReady }: { inline?: boolean; onEditorReady?: (editor: unknown) => void }) => {
+    useEffect(() => {
+      onEditorReady?.(editorStub.instance);
+    }, [onEditorReady]);
+    return (
+      <div data-testid="rich-editor" data-inline={String(Boolean(inline))} tabIndex={0}>
+        My context
+      </div>
+    );
+  },
 }));
 vi.mock('@/components/TranscriptContent', () => ({ default: () => <div>Speaker transcript</div> }));
 
@@ -136,6 +149,61 @@ describe('the notes field', () => {
     expect(screen.getByText('type / for formatting')).toBeInTheDocument();
     fireEvent.blur(editor);
     expect(screen.queryByText('type / for formatting')).not.toBeInTheDocument();
+  });
+});
+
+describe('a video link’s transcript tab', () => {
+  const youtube = { id: 'yt', type: 'link' as const, attributes: { link: { flavor: 'video' as const } } };
+
+  it('is honest while no transcript has been captured', () => {
+    renderLink({ item: youtube });
+    expect(screen.getByRole('tab', { name: 'Transcript' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Transcript' }));
+    expect(screen.getByText('No transcript for this video yet.')).toBeInTheDocument();
+    expect(screen.queryByText('Speaker transcript')).not.toBeInTheDocument();
+  });
+
+  it('shows the captured transcript once enrichment has stored one', () => {
+    renderLink({ item: { ...youtube, attributes: { link: { flavor: 'video' as const, transcript: { source: 'youtube-captions' } } } } });
+    expect(screen.queryByRole('tab', { name: 'Original Content' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Transcript' }));
+    expect(screen.getByText('Speaker transcript')).toBeInTheDocument();
+  });
+});
+
+describe('timestamped notes', () => {
+  const Clock = ({ seconds }: { seconds: number }) => {
+    const clock = useMediaClock();
+    useEffect(() => {
+      clock.report(seconds);
+    }, [clock, seconds]);
+    return null;
+  };
+
+  it('offers "+ note at m:ss" only while a player reports its time, and drops the marker into the note', async () => {
+    renderLink({ content: '' });
+    expect(screen.queryByRole('button', { name: /note at/ })).not.toBeInTheDocument();
+    cleanup();
+    render(
+      <MediaClockProvider>
+        <Clock seconds={102} />
+        <EditItemContentSection
+          item={{ id: 'link', type: 'link' }}
+          content=""
+          isContentLoading={false}
+          editorKey="link"
+          onContentChange={vi.fn()}
+          onMaximize={vi.fn()}
+          isMobile={false}
+          mobileEditorReady
+        />
+      </MediaClockProvider>,
+    );
+    const button = screen.getByRole('button', { name: '+ note at 1:42' });
+    fireEvent.click(button);
+    expect(screen.getByTestId('rich-editor')).toBeInTheDocument();
+    // The editor mounts first; the marker lands on the next frame
+    await waitFor(() => expect(editorStub.inserted).toContain('[1:42] '));
   });
 });
 

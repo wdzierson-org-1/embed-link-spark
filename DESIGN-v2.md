@@ -532,7 +532,7 @@ once, and the shared beat never strands one mid-effect.
 | Composer chips | `| fetching more details…`, `| reading the link…`, `| analyzing…`, `| uploading…`, `| uploading · 45%` | `posted from Brooklyn, New York`, `finding your location…` |
 | The composer | | `type / for commands` (only while it's focused); the drop veil says `drop to save` |
 | Ask | `| searching your stash…` (before the first word), `| writing the answer…` (streaming) | `✓ searched your stash · 3 saves`, `answers from your 59 saves`, `also from`, `⌖ show 3 sources` / `showing` |
-| The item panel | `| saving…`, `| loading the editor…`, `| summarizing…`, `| transcribing… part 2 of 4` | `✓ saved 9:41 pm`, `changes save automatically`, `type / for formatting`, `download original`; the address strip's `copy address` / `copied`, `edit address` / `save address`, `enter saves · esc cancels`, `✕ that doesn't look like a web address`; a failed summary: `couldn't summarize this. try again` or `nothing captured to summarize yet` (error tone); an edited summary: `saving the summary…`, `couldn't save the summary. try again`; the address strip's `cancel`; the share cell `share` / `shared · anyone with the link` and its window `✓ link copied · anyone with it can view`, `anyone with the link can view`, `not on your feed · read only`, `copy link`, `✕ couldn't update the link. try again` |
+| The item panel | `| saving…`, `| loading the editor…`, `| summarizing…`, `| transcribing… part 2 of 4` | `✓ saved 9:41 pm`, `changes save automatically`, `type / for formatting`, `download original`; the address strip's `copy address` / `copied`, `edit address` / `save address`, `enter saves · esc cancels`, `✕ that doesn't look like a web address`; a failed summary: `couldn't summarize this. try again` or `nothing captured to summarize yet` (error tone); an edited summary: `saving the summary…`, `couldn't save the summary. try again`; the address strip's `cancel`; the share cell `share` / `shared · anyone with the link` and its window `✓ link copied · anyone with it can view`, `anyone with the link can view`, `not on your feed · read only`, `copy link`, `✕ couldn't update the link. try again`; the stages' `full size` / `exit full size`, `full screen`, `minimize`, the reader's `page 3 of 12`, `couldn't open this pdf here. open or download it below`; the notes rule's `+ note at 1:42` |
 | The shared page (§12.15) | `opening the save…` | `from @will’s stash`; a dead link: "This link no longer works." |
 | Settings | `| loading your settings…`, `| checking your plan…`, `| checking for agents…` | `signed in as …`, `connected 3 days ago · last used 1 hour ago`, `activity.log` |
 | The loading screen | `> opening your stash`, then eleven more, decrypting in the code voice (§12.10) | |
@@ -761,6 +761,18 @@ ink on hover.
   2026-10-07: "the detail panel should show the video"). Audio uses the **player strip**: plain fill
   with a line edge, a 44 px ink play button, 40 ink bars, times in Departure Mono, a 28 px square
   speed control (`1×`, `1.5×`, `2×`) and `download original` (`edit/EditItemMediaZone`).
+- **The media plays** (2026-10-10, Will: "an embedded, playable version of the media"). A link
+  whose URL is a YouTube, Vimeo, Loom, TikTok, Instagram, Google Slides or Figma address gets its
+  own player on the dotted stage in place of its picture (`edit/EditItemEmbedStage`; landscape
+  players take the stage's width at 16:9, phone-shaped ones sit centred at 340 px); anything
+  else keeps the picture. An upload gets **the document stage** (`edit/EditItemDocumentStage`):
+  a PDF as a reader (one page at a time, `‹ page 3 of 12 ›` in the machine voice, ← → keys), an
+  Office file in Microsoft's viewer (slides step), an HTML upload in a sandboxed frame.
+- **Every stage has two hover cells** top-right (36 px, white, ink edge; `edit/StageFull`):
+  **full size** — the panel widens to the browser and the stage fills it, with an ink bar naming
+  the stage (`picture`, `video`, `youtube video`, `pdf`, `slides`) and a minimize cell; Esc or
+  minimize returns — and **full screen**, the browser's own. The media element never remounts,
+  so a playing video keeps playing. The picture's replace/remove cells sit bottom-right.
 - **Source address:** the machine strip: favicon and the whole address in JetBrains Mono 12.5 as
   one link, then 40 px cells: **copy** (tooltip `copy address`; after a click the cell shows a
   check and says `copied` for two seconds), **edit** (`edit address`; the strip becomes a field in
@@ -798,7 +810,16 @@ ink on hover.
   for audio and video; the open tab is ink), and a 24 px **full-size** cell sits on the right, which
   opens the active tab full size (`edit/MaximizedSource`: the window chrome the notes' maximize
   uses, an ink bar naming the tab, a minimize control, a reading column; Esc or minimize returns).
-  Empty source tabs are small dotted stages.
+  Empty source tabs are small dotted stages. **A video link** (YouTube, TikTok, a reel…) also
+  gets a **transcript** tab (`summary | original content | transcript`; once a transcript is
+  captured it is the original content and the tab set is `summary | transcript`); until the
+  pipeline lands it says "No transcript for this video yet." (2026-10-10).
+- **Timestamped notes** (2026-10-10, the first annotation): while a player on the panel reports
+  its time, the notes rule offers `+ note at 1:42` in the machine voice; it drops a `[1:42]`
+  marker into the note and focuses it. Markers are plain text that every client can read; here
+  they render in the code voice on the fill with an ink underline, and a click seeks the player
+  (`editor/TimestampLinks`, `edit/MediaClock`). Native audio/video and YouTube keep the clock;
+  Vimeo, TikTok and Instagram players don't expose one, so the control stays away.
 - **Details:** open by default (Will, 2026-10-07: "leave the details expanded by default"), the
   facts as a tree; a new item opens it again. Collapsed, the head shows the common facts inline
   (`m4a · 82.3 kb · 0:03`). Only an upload lists an original file: a link's stored cover isn't one.

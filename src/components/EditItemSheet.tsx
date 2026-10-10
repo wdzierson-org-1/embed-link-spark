@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { Tabs } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -25,6 +25,8 @@ import { useNow } from '@/hooks/useNow';
 import { isReadingDocument } from '@/utils/itemAssembly';
 import ItemWindowBar from '@/components/edit/ItemWindowBar';
 import ShareControl from '@/components/edit/ShareControl';
+import { StageFullProvider } from '@/components/edit/StageFull';
+import { embedFor } from '@/utils/embeds';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
@@ -119,6 +121,8 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
     onDelete(item.id);
   };
 
+  const [stageFull, setStageFull] = useState(false);
+
   // The window bar (DESIGN-v2: Stash's own furniture is a window): what this save is and
   // where it came from, in the machine voice. The share cell, then the sheet's close, sit at
   // its right end.
@@ -185,21 +189,26 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
     isMobile,
   };
 
-  // For image items or links with images, show inline without tabs
-  if (item?.type === 'image' || (item?.type === 'link' && hasImage)) {
+  // A stage made full size takes the sheet to the browser's width (StageFull)
+  const sheetClass = `flex h-full w-full flex-col p-0 sm:h-auto ${stageFull ? 'sm:w-screen sm:max-w-none' : 'sm:w-[800px] sm:max-w-[800px]'}`;
+
+  // For image items and links with a picture or a player of their own, show inline without tabs
+  if (item?.type === 'image' || (item?.type === 'link' && (hasImage || Boolean(embedFor(item.url))))) {
     return (
       <TooltipProvider>
         <Sheet open={open} onOpenChange={onOpenChange}>
-          <SheetContent className="flex h-full w-full flex-col p-0 sm:h-auto sm:w-[800px] sm:max-w-[800px]">
+          <SheetContent className={sheetClass}>
             <SheetTitle className="sr-only">Edit item</SheetTitle>
             {windowBar}
             <div className="flex-1 overflow-y-auto pt-8">
-              <EditItemDetailsTab
-                {...detailsTabProps}
-                isInsideTabs={false}
-                showInlineImage={true}
-                imageUrl={imageUrl}
-              />
+              <StageFullProvider onChange={setStageFull}>
+                <EditItemDetailsTab
+                  {...detailsTabProps}
+                  isInsideTabs={false}
+                  showInlineImage={true}
+                  imageUrl={imageUrl}
+                />
+              </StageFullProvider>
             </div>
             {footer}
           </SheetContent>
@@ -211,7 +220,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
   return (
     <TooltipProvider>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className="flex h-full w-full flex-col p-0 sm:h-auto sm:w-[800px] sm:max-w-[800px]">
+        <SheetContent className={sheetClass}>
           <SheetTitle className="sr-only">Edit item</SheetTitle>
           {windowBar}
           <div className="flex-1 overflow-y-auto">
@@ -221,7 +230,9 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
                   <EditItemTabNavigation hasImage={hasImage} />
                 </div>
 
-                <EditItemDetailsTab {...detailsTabProps} isInsideTabs={true} />
+                <StageFullProvider onChange={setStageFull}>
+                  <EditItemDetailsTab {...detailsTabProps} isInsideTabs={true} />
+                </StageFullProvider>
 
                 <EditItemImageTab
                   item={item}
