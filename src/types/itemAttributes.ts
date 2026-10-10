@@ -44,12 +44,25 @@ export type LinkAttributes = {
   duration_s?: number;
   stars?: number;
   read_time_min?: number;
-  /**
-   * Present once a video link's transcript has been captured into `page_body` (spec
-   * 2026-09-05: YouTube captions through Firecrawl; TikTok/Instagram later). Without it a video
-   * link's `page_body` is just its page text.
-   */
-  transcript?: { source: 'youtube-captions' | string; language?: string; captured_at?: string };
+};
+
+/**
+ * What enrichment knows about how `page_body` was captured (written by the server through
+ * `apply_enrichment_patch`'s evidence merge). `transcript: true` is the one flag every client
+ * reads for "this page_body is a transcript" — set by `scrape-page-content` for YouTube
+ * (Firecrawl, spec 2026-09-05) and by the maintenance loop's social adapter (Supadata).
+ */
+export type EnrichmentEvidence = {
+  transcript?: boolean;
+  transcript_source?: string;
+  capture_kind?: string;
+  duration_s?: number;
+  author?: string;
+  /** The social adapter's own marks (TikTok/Instagram captions, Supadata visual notes) */
+  caption?: boolean;
+  canonical_url?: string;
+  visual?: boolean;
+  visual_text?: string;
 };
 
 /**
@@ -97,7 +110,7 @@ export type MediaAttributes = {
 export type ItemAttributes = {
   /** Publisher structured facts, with source evidence; separate from the capture location. */
   object_facts?: ObjectFacts;
-  enrichment?: { status: 'pending' | 'complete' | 'partial'; updated_at: string };
+  enrichment?: { status: 'pending' | 'complete' | 'partial'; updated_at: string; evidence?: EnrichmentEvidence };
   location?: CapturedLocation;
   link?: LinkAttributes;
   media?: MediaAttributes;

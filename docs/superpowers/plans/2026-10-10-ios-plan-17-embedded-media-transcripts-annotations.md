@@ -33,8 +33,8 @@ contract (plan 16); `docs/superpowers/specs/2026-09-05-youtube-transcript-enrich
   `page_body` is captured source (a transcript once `attributes.link.transcript` is set);
   `attributes` is written whole, preserving keys you don't model (`pinned_at`, `share_token`,
   `shared_at` are columns, not attributes).
-- **Never fake enrichment.** A video link without `attributes.link.transcript` has no transcript;
-  the tab says "No transcript for this video yet." — never show `page_body` as one.
+- **Never fake enrichment.** A video link without `attributes.enrichment.evidence.transcript === true`
+  has no transcript; the tab says "No transcript for this video yet." — never show `page_body` as one.
 - **Third parties:** Office files go through `https://view.officeapps.live.com/op/embed.aspx?src=<public URL>`
   (Will accepted that Microsoft fetches the file). HTML uploads load in a WKWebView with a
   non-persistent data store and navigation blocked to other hosts (the web's sandbox equivalent).
@@ -131,9 +131,11 @@ list + toolbar, the card context menu, `ios/StashUITests/*`.
 **Files:** `ios/StashKit/Sources/StashKit/ItemRules.swift` (`contentTabsConfig`), its tests,
 `ItemDetailContent.swift`.
 
-- [ ] `contentTabsConfig` takes the item (type + `attributes.link.flavor` + `attributes.link.transcript`):
-      video links → `summary | original content | transcript`; with a transcript → `summary | transcript`.
-      Model `LinkAttributes.transcript: { source, language?, captured_at? }`.
+- [ ] `contentTabsConfig` takes the item (type + `attributes.link.flavor` +
+      `attributes.enrichment.evidence.transcript`): video links → `summary | original content | transcript`;
+      with a transcript (`evidence.transcript === true`) → `summary | transcript`. Model
+      `EnrichmentEvidence { transcript?: Bool, transcript_source?, duration_s?, author? }` under
+      `enrichment.evidence`, preserving unknown keys.
 - [ ] The tab shows `page_body` read-only only when the flag is set; otherwise "No transcript for
       this video yet."
 - [ ] Tests mirror `editPanelTabs.video.test.ts`.

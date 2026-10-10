@@ -18,7 +18,7 @@ import ReadOnlyNovelRenderer from '@/components/ReadOnlyNovelRenderer';
 import TranscriptContent from '@/components/TranscriptContent';
 import { ReadOnlyText } from '@/components/EditItemContentSection';
 import { SectionHead } from '@/components/edit/EditPanelSection';
-import { getContentTabsConfig, type ContentTabKey } from '@/utils/editPanelTabs';
+import { getContentTabsConfig, hasCapturedTranscript, type ContentTabKey } from '@/utils/editPanelTabs';
 import { noteIsEmpty } from '@/utils/noteContent';
 import { SHARE_TOKEN_PATTERN } from '@/utils/shareToken';
 import type { ItemAttributes } from '@/types/itemAttributes';
@@ -157,7 +157,7 @@ const SharedItem = () => {
     if (tab === 'original') {
       return save.page_body ? <ReadOnlyText text={save.page_body} capped={false} /> : <EmptyTab>No page content was captured.</EmptyTab>;
     }
-    if (save.type === 'link' && !save.attributes?.link?.transcript) return <EmptyTab>No transcript for this video yet.</EmptyTab>;
+    if (save.type === 'link' && !hasCapturedTranscript(save.attributes)) return <EmptyTab>No transcript for this video yet.</EmptyTab>;
     return <TranscriptContent itemId={save.id} transcript={save.page_body} />;
   };
 

@@ -11,7 +11,10 @@ describe('a video link’s tabs (spec 2026-09-05; Will, 2026-10-10)', () => {
   });
 
   it('once the transcript is the content, Original Content goes', () => {
-    const transcribed = { type: 'link', attributes: { link: { flavor: 'video' as const, transcript: { source: 'youtube-captions' } } } };
+    const transcribed = {
+      type: 'link',
+      attributes: { link: { flavor: 'video' as const }, enrichment: { status: 'complete' as const, updated_at: '2026-10-10T00:00:00Z', evidence: { transcript: true } } },
+    };
     expect(getContentTabsConfig(transcribed).tabs.map((t) => t.key)).toEqual(['summary', 'transcript']);
   });
 

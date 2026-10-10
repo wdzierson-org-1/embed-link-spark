@@ -7,7 +7,7 @@ import EditItemContentEditor from '@/components/EditItemContentEditor';
 import MaximizedSource from '@/components/edit/MaximizedSource';
 import { SectionHead } from '@/components/edit/EditPanelSection';
 import { canSummarizeSource, useItemSourceContent } from '@/hooks/useItemSourceContent';
-import { getContentTabsConfig, needsSourceContent, type ContentTabKey } from '@/utils/editPanelTabs';
+import { getContentTabsConfig, hasCapturedTranscript, needsSourceContent, type ContentTabKey } from '@/utils/editPanelTabs';
 import { enrichmentState } from '@/utils/itemAssembly';
 import { noteIsEmpty } from '@/utils/noteContent';
 import { formatTimestamp, timestampMarker } from '@/utils/timestamps';
@@ -228,7 +228,7 @@ const EditItemContentSection = ({
 
   const isDocument = item?.type === 'document' || item?.type === 'pdf';
   // A video link's transcript lives in page_body only once enrichment has captured one
-  const linkTranscribed = Boolean(item?.attributes?.link?.transcript);
+  const linkTranscribed = hasCapturedTranscript(item?.attributes);
   // Only pending enrichment is still extracting. Once it settles with no text (the extraction
   // failed, e.g. a PDF over OpenAI's 50 MB limit), "still being extracted" would be false.
   const noDocumentText = item && enrichmentState(item, Date.now()) === 'pending'

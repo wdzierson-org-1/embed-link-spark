@@ -164,7 +164,7 @@ describe('a video link’s transcript tab', () => {
   });
 
   it('shows the captured transcript once enrichment has stored one', () => {
-    renderLink({ item: { ...youtube, attributes: { link: { flavor: 'video' as const, transcript: { source: 'youtube-captions' } } } } });
+    renderLink({ item: { ...youtube, attributes: { link: { flavor: 'video' as const }, enrichment: { status: 'complete' as const, updated_at: '2026-10-10T00:00:00Z', evidence: { transcript: true } } } } });
     expect(screen.queryByRole('tab', { name: 'Original Content' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Transcript' }));
     expect(screen.getByText('Speaker transcript')).toBeInTheDocument();

@@ -42,13 +42,21 @@ timestamped notes on media first; HTML slides = both web decks and uploaded `.ht
   store for HTML.
 - **Transcript tab for video links** (`utils/editPanelTabs.ts`, flavor-aware per spec 2026-09-05):
   a link whose `attributes.link.flavor === 'video'` gets `summary | original content | transcript`;
-  once enrichment has captured a transcript it sets `attributes.link.transcript = { source,
-  language?, captured_at? }` and stores the transcript in `page_body`, and the tab set becomes
-  `summary | transcript` (the transcript is the original content). Until then the tab says
-  "No transcript for this video yet." Recordings keep their single `transcript` tab. **The
-  pipeline does not exist yet:** YouTube through Firecrawl once Will sets `FIRECRAWL_API_KEY`
-  (spec 2026-09-05); TikTok/Reels via Supadata later. Clients must never invent a transcript from
-  `page_body` without the flag (a YouTube page body today is navigation chrome).
+  once enrichment has captured a transcript into `page_body` it sets
+  **`attributes.enrichment.evidence.transcript = true`** (plus `transcript_source`, and
+  `duration_s` / `author` when known) and the tab set becomes `summary | transcript` (the
+  transcript is the original content). Until then the tab says "No transcript for this video
+  yet." Recordings keep their single `transcript` tab. Clients must never invent a transcript
+  from `page_body` without the flag (a YouTube page body before this was navigation chrome).
+  **Pipeline (server, 2026-10-10):** `scrape-page-content` → `_shared/pageExtraction` now calls
+  Firecrawl **v2** and, for a YouTube watch/live/youtu.be URL, parses the transcript out of the
+  markdown (`_shared/youtubeTranscript.ts`): `page_body` = caption lines (≤ 200k chars),
+  `summary` = a recording-style summary (`kind: 'video'`), `description` = the video's own first
+  paragraph when the saved one was synthetic ("Watch … on YouTube"); no transcript (Shorts,
+  captions off, Firecrawl down) → nothing is written and the cascade is **never** run for
+  YouTube. TikTok/Instagram transcripts come from the maintenance loop's Supadata adapter
+  (`_shared/socialEnrichment.ts`) once `SUPADATA_API_KEY` is set and repairs are enabled — the
+  same flag.
 - **Timestamped notes** (`utils/timestamps.ts`): a note may carry `[m:ss]` or `[h:mm:ss]` markers
   as **plain text** in `content`. Players make them live: a marker is a seek point into the
   save's media, and while a player reports its position the notes head offers `+ note at 1:42`,

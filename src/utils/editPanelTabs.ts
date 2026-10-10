@@ -27,6 +27,10 @@ const TRANSCRIPT: ContentTab = { key: 'transcript', label: 'Transcript' };
 export const isVideoLink = (subject?: TabsSubject | null): boolean =>
   subject?.type === 'link' && subject.attributes?.link?.flavor === 'video';
 
+/** `page_body` holds a captured transcript: the server's `enrichment.evidence.transcript` flag */
+export const hasCapturedTranscript = (attributes?: ItemAttributes | null): boolean =>
+  attributes?.enrichment?.evidence?.transcript === true;
+
 // Notes are an independent section. These are the source tabs below it;
 // notes-only types retain a sentinel default for existing callers.
 export const getContentTabsConfig = (subject?: string | TabsSubject | null): ContentTabsConfig => {
@@ -37,7 +41,7 @@ export const getContentTabsConfig = (subject?: string | TabsSubject | null): Con
       if (attributes?.link?.flavor === 'video') {
         // Until a transcript is captured the page text stays readable under Original Content;
         // once there is one it IS the original content, so the tab goes (Will, 2026-10-10)
-        const transcribed = Boolean(attributes.link.transcript);
+        const transcribed = hasCapturedTranscript(attributes);
         return {
           title: 'Source',
           defaultTab: 'summary',

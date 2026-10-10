@@ -25,23 +25,38 @@ serve(async req => {
     // Never replace a transcript already recovered by maintenance with a shorter page caption.
     if (item.attributes?.enrichment?.evidence?.transcript) return json({ success: true, reason: 'richer_content_preserved' });
     const patch: Record<string, string> = { page_body: capture.text };
+    // A video's transcript is its content (spec 2026-09-05): summarized as a recording, and the
+    // video's own description replaces the synthetic "Watch … on YouTube" line.
+    const isTranscript = capture.kind === 'transcript';
+    if (isTranscript && capture.youtube?.description && (isPlaceholderMetadata(item.description, url) || /\bon youtube$/i.test(item.description ?? ''))) {
+      patch.description = capture.youtube.description;
+    }
     const key = Deno.env.get('OPENAI_API_KEY');
     if (key) {
       if (isPlaceholderMetadata(item.title, url)) {
         const title = await deriveTitleFromContent(key, capture.text, url);
         if (title && !isPlaceholderMetadata(title, url)) patch.title = title;
       }
-      const summary = await generateSummary(key, { sourceText: capture.text, kind: 'link', title: patch.title || item.title, url });
+      const summary = await generateSummary(key, { sourceText: capture.text, kind: isTranscript ? 'video' : 'link', title: patch.title || item.title, url });
       if (summary) {
         patch.summary = summary;
-        if (isPlaceholderMetadata(item.description, url)) patch.description = summary.slice(0, 350);
+        if (!patch.description && isPlaceholderMetadata(item.description, url)) patch.description = summary.slice(0, 350);
       }
     }
     // Finish fallible model work before creating an object to attach. A thrown
     // patch call remains ambiguous; never delete an image it may have saved.
-    const recoveredPreview = await recoverCapturedPreview(db, item, capture.text);
+    const recoveredPreview = isTranscript ? null : await recoverCapturedPreview(db, item, capture.text);
     if (recoveredPreview) patch.file_path = recoveredPreview.path;
-    const applied = await applyCandidate(db, item, patch, capture.source, { capture_kind: capture.kind });
+    // `evidence.transcript` is the one flag every client reads for "page_body is a transcript"
+    // (the maintenance loop's social adapter sets the same one)
+    const evidence: Record<string, unknown> = { capture_kind: capture.kind };
+    if (isTranscript) {
+      evidence.transcript = true;
+      evidence.transcript_source = capture.source;
+      if (capture.youtube?.durationS) evidence.duration_s = capture.youtube.durationS;
+      if (capture.youtube?.author) evidence.author = capture.youtube.author;
+    }
+    const applied = await applyCandidate(db, item, patch, capture.source, evidence);
     if (!applied) {
       // Another write won the item snapshot; discard only our new upload.
       if (recoveredPreview) await db.storage.from('stash-media').remove([recoveredPreview.path]);
