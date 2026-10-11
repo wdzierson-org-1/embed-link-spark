@@ -128,6 +128,8 @@ async function revokeAppleTokens(admin: SupabaseClient, userId: string): Promise
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ client_id: row.client_id, client_secret: clientSecret, token: row.refresh_token, token_type_hint: "refresh_token" }).toString(),
+        // A stalled Apple must never hold up deletion: the abort lands in the catch below and counts as failed.
+        signal: AbortSignal.timeout(8_000),
       });
       if (res.ok) revoked += 1;
       else {
