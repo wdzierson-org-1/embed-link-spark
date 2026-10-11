@@ -12,6 +12,23 @@ export const suggestHandle = (fullName?: string | null) => {
   return s.length >= 3 ? s : null;
 };
 
+// Apple's Hide My Email addresses: the local part is random characters, so the trigger never names anyone after it
+const APPLE_RELAY_DOMAIN = 'privaterelay.appleid.com';
+const text = (v: unknown) => (typeof v === 'string' ? v : undefined);
+
+/**
+ * What the claim step's field starts with (spec §4.3), most personal first: the name the provider
+ * gave us, else the server's own handle when the forms would accept it, else the email's local part
+ * (never a relay address's, as in the trigger), else nothing. A guest-shaped server handle
+ * (guest-ab12cd34) fails the format, so it is never the prefill.
+ */
+export const handlePrefill = (user: { email?: string | null; user_metadata?: Record<string, unknown> }, serverUsername: string): string => {
+  const fullName = text(user.user_metadata?.full_name) ?? text(user.user_metadata?.name);
+  const [local, domain = ''] = (user.email ?? '').split('@');
+  const emailLocalPart = domain.toLowerCase() === APPLE_RELAY_DOMAIN ? '' : local;
+  return suggestHandle(fullName) ?? (USERNAME_RE.test(serverUsername) ? serverUsername : suggestHandle(emailLocalPart) ?? '');
+};
+
 /** The server's display-name fallbacks (spec §4.4): nothing, the handle itself, or the email's local part */
 export const isFallbackDisplayName = (displayName: string | null | undefined, username: string, email?: string | null) => {
   const local = (email ?? '').split('@')[0];

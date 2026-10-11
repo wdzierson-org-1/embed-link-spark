@@ -3,7 +3,10 @@ import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthShell, AuthTextAction, FieldError } from '@/components/auth/AuthShell';
 import { SubmitButton, field } from '@/components/auth/AuthControls';
-import { isUsernameTaken, sanitizeUsername } from '@/components/auth/usernameAvailability';
+import { ProviderButtons, type ProviderIdToken } from '@/components/auth/ProviderButtons';
+import { HandleStep } from '@/components/auth/HandleStep';
+import { handlePrefill, isUsernameTaken, sanitizeUsername } from '@/components/auth/usernameAvailability';
+import { writeAppleName } from '@/components/auth/appleName';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -19,6 +22,7 @@ const COPY = {
   signup: { address: 'stash://sign-up', title: 'Start your stash.', prompt: 'new here? pull up a chair.' },
   reset: { address: 'stash://reset', title: 'Forgot your password?', prompt: 'happens to the best of us.' },
   sent: { address: 'stash://reset', title: 'Check your email.', prompt: 'a link is on its way to you.' },
+  handle: { address: 'stash://handle', title: 'Claim your address.', prompt: 'one more thing. pick your handle.' },
 } as const;
 
 const Auth = () => {
@@ -36,12 +40,13 @@ const Auth = () => {
   const mode = searchParams.get('mode') || 'signin';
   const returnTo = searchParams.get('returnTo');
   const commentItem = searchParams.get('commentItem');
-  const [view, setView] = useState<'tabs' | 'reset'>(mode === 'reset' ? 'reset' : 'tabs');
+  const [view, setView] = useState<'tabs' | 'reset' | 'handle'>(mode === 'reset' ? 'reset' : 'tabs');
   const [tab, setTab] = useState<'signin' | 'signup'>(mode === 'signup' ? 'signup' : 'signin');
   const [resetSent, setResetSent] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+  const [providerBusy, setProviderBusy] = useState(false);
 
-  const { signIn, signUp, user } = useAuth();
+  const { signIn, signUp, signInWithIdToken, user, handle, refreshHandle } = useAuth();
   const { registerPhoneNumber } = usePhoneNumber();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -52,18 +57,21 @@ const Auth = () => {
   // /auth → /home → / and lock the visitor out of signing in); signing in
   // simply replaces the anonymous session.
   const isRealUser = !!user && !(user as { is_anonymous?: boolean }).is_anonymous;
+
+  // Where a signed-in person goes next: back to what sent them here, else the library
+  const destination = returnTo && commentItem ? `${returnTo}?openComment=${commentItem}` : (returnTo ?? '/home');
+
+  // The gate (spec §6.3): a real account leaves this page only once its handle is known. Unknown →
+  // the bar says `| opening…`; unconfirmed → the claim step; confirmed → onward. `mode=handle`
+  // (Index sends unconfirmed people here) needs nothing special — the same effect decides.
   useEffect(() => {
-    if (isRealUser) {
-      if (returnTo && commentItem) {
-        // Redirect back to the original page with comment panel open
-        navigate(`${returnTo}?openComment=${commentItem}`);
-      } else if (returnTo) {
-        navigate(returnTo);
-      } else {
-        navigate('/home');
-      }
+    if (!isRealUser || !handle) return;
+    if (!handle.confirmed) {
+      setView('handle');
+      return;
     }
-  }, [isRealUser, navigate, returnTo, commentItem]);
+    navigate(destination);
+  }, [isRealUser, handle, navigate, destination]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,7 +82,13 @@ const Auth = () => {
     if (error) {
       toast({
         title: "Sign in failed",
-        description: error.message,
+        description: (
+          <>
+            {error.message}
+            <br />
+            Signed up with Google or Apple? Use that button.
+          </>
+        ),
         variant: "destructive",
       });
     } else {
@@ -82,16 +96,9 @@ const Auth = () => {
         title: "Welcome back!",
         description: "You've been signed in successfully.",
       });
-      
-      if (returnTo && commentItem) {
-        navigate(`${returnTo}?openComment=${commentItem}`);
-      } else if (returnTo) {
-        navigate(returnTo);
-      } else {
-        navigate('/home');
-      }
+      // the gate routes once the handle is known
     }
-    
+
     setLoading(false);
   };
 
@@ -165,17 +172,33 @@ const Auth = () => {
         title: "Account created!",
         description: "You've been signed up successfully.",
       });
-      
-      if (returnTo && commentItem) {
-        navigate(`${returnTo}?openComment=${commentItem}`);
-      } else if (returnTo) {
-        navigate(returnTo);
-      } else {
-        navigate('/home');
+      // the gate routes once the handle is known
+    }
+
+    setLoading(false);
+  };
+
+  // A provider's identity token → Supabase. Apple's extras ride along: the name (first time only)
+  // and the one-shot authorization code the server exchanges so deletion can revoke (spec §6.2).
+  const handleProviderToken = async (t: ProviderIdToken) => {
+    setProviderBusy(true);
+    const { error } = await signInWithIdToken({ provider: t.provider, token: t.token, nonce: t.nonce });
+    if (error) {
+      setProviderBusy(false);
+      toast({ title: "Sign-in didn't complete.", description: error.message, variant: 'destructive' });
+      return;
+    }
+    if (t.provider === 'apple') {
+      const { data } = await supabase.auth.getSession();
+      const signedIn = data.session?.user;
+      if (signedIn && t.appleName) void writeAppleName(signedIn, t.appleName).catch((e) => console.warn('[auth] apple name', e));
+      if (t.appleCode) {
+        void supabase.functions
+          .invoke('apple-token-exchange', { body: { code: t.appleCode, client: 'web' } })
+          .then(({ error: fnError }) => { if (fnError) console.warn('[auth] apple-token-exchange', fnError.message); });
       }
     }
-    
-    setLoading(false);
+    // the gate routes once the handle is known
   };
 
   const handleResetRequest = async (e: React.FormEvent) => {
@@ -209,11 +232,41 @@ const Auth = () => {
   };
   const showTabs = () => setView('tabs');
 
-  const copy = view === 'reset' ? (resetSent ? COPY.sent : COPY.reset) : COPY[tab];
+  const copy = view === 'handle' ? COPY.handle : view === 'reset' ? (resetSent ? COPY.sent : COPY.reset) : COPY[tab];
+
+  // The pair sits above the fields on both tabs (Radix mounts only the active tab, so one Google
+  // button and one #appleid-signin exist at a time)
+  const providerPair = (
+    <div className="mb-6 space-y-3">
+      <ProviderButtons
+        onToken={handleProviderToken}
+        onError={(message) => toast({ title: "Sign-in didn't complete.", description: message, variant: 'destructive' })}
+      />
+      <p className="font-pixel text-pixel text-muted-foreground">one account per email. sign in the same way each time.</p>
+      <div className="flex items-center gap-3 font-pixel text-pixel text-muted-foreground" aria-hidden>
+        <span className="h-px flex-1 bg-ink/15" />
+        <span>or with your email</span>
+        <span className="h-px flex-1 bg-ink/15" />
+      </div>
+    </div>
+  );
 
   return (
-    <AuthShell address={copy.address} title={copy.title} prompt={copy.prompt}>
-      {view === 'reset' ? (
+    <AuthShell
+      address={copy.address}
+      title={copy.title}
+      prompt={copy.prompt}
+      busy={isRealUser && !handle ? 'opening…' : providerBusy ? 'signing in…' : null}
+    >
+      {view === 'handle' && user && handle ? (
+        <HandleStep
+          userId={user.id}
+          serverUsername={handle.username}
+          email={user.email}
+          initialUsername={handlePrefill(user, handle.username)}
+          onClaimed={() => void refreshHandle()}
+        />
+      ) : view === 'reset' ? (
         resetSent ? (
           <div className="space-y-5">
             <p className="text-[15px] leading-[1.55] text-ink">
@@ -255,6 +308,7 @@ const Auth = () => {
           </TabsList>
 
           <TabsContent value="signin" className="mt-6">
+            {providerPair}
             <form onSubmit={handleSignIn} className="space-y-5">
               <div className="space-y-2">
                 <Label htmlFor="signin-email">Email</Label>
@@ -291,6 +345,7 @@ const Auth = () => {
           </TabsContent>
 
           <TabsContent value="signup" className="mt-6">
+            {providerPair}
             <form onSubmit={handleSignUp} className="space-y-5">
               <div className="space-y-2">
                 <Label htmlFor="signup-email">Email</Label>

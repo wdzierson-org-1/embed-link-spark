@@ -1,5 +1,5 @@
 // src/components/auth/usernameAvailability.test.ts
-import { USERNAME_RE, isFallbackDisplayName, isUsernameTaken, sanitizeUsername, suggestHandle } from './usernameAvailability';
+import { USERNAME_RE, handlePrefill, isFallbackDisplayName, isUsernameTaken, sanitizeUsername, suggestHandle } from './usernameAvailability';
 
 const probe = vi.hoisted(() => ({ row: null as null | { id: string } }));
 vi.mock('@/integrations/supabase/client', () => ({
@@ -36,5 +36,31 @@ describe('usernameAvailability', () => {
     expect(isFallbackDisplayName(null, 'will7', 'will@gostash.it')).toBe(true); // nothing
     expect(isFallbackDisplayName('Will Dzierson', 'will7', 'will@gostash.it')).toBe(false); // a name the person has
     expect(isFallbackDisplayName('', 'a', undefined)).toBe(true);
+  });
+});
+
+describe('handlePrefill', () => {
+  const person = (email: string | undefined, user_metadata: Record<string, unknown> = {}) => ({ email, user_metadata });
+
+  it('starts from the name the provider gave us, ahead of the server handle', () => {
+    expect(handlePrefill(person('will@example.com', { full_name: 'Will Dzierson' }), 'stash3')).toBe('willdzierson');
+    expect(handlePrefill(person('will@example.com', { name: 'Will Dzierson' }), 'guest-ab12cd34')).toBe('willdzierson');
+    // a name too short to make a handle, or not a string at all, is no name
+    expect(handlePrefill(person('will@example.com', { full_name: '李' }), 'stash3')).toBe('stash3');
+    expect(handlePrefill(person('will@example.com', { full_name: 42 }), 'stash3')).toBe('stash3');
+  });
+
+  it('keeps the server handle when there is no name and the forms would accept it', () => {
+    expect(handlePrefill(person('will@example.com'), 'stash3')).toBe('stash3');
+  });
+
+  it('never prefills a guest-shaped handle: the email local part stands in', () => {
+    expect(handlePrefill(person('will@example.com'), 'guest-ab12cd34')).toBe('will');
+    expect(handlePrefill(person('Will.Dz@Example.com'), '')).toBe('willdz');
+  });
+
+  it('prefills nothing when all there is to go on is an Apple relay address, or no address', () => {
+    expect(handlePrefill(person('kz8f3q2m@privaterelay.appleid.com'), 'guest-ab12cd34')).toBe('');
+    expect(handlePrefill(person(undefined), 'guest-ab12cd34')).toBe('');
   });
 });
