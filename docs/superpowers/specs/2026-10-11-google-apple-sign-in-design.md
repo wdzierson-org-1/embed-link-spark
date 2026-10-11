@@ -206,7 +206,7 @@ and keep the result in the plan's verification notes. Mirror the two providers i
 `client_id`, `skip_nonce_check = false`, empty `secret`) so local parity is documented even
 though the local stack is not used here.
 
-### 5.2 Migration `20261011120000_oauth_handles.sql`
+### 5.2 Migration `20261011150000_oauth_handles.sql`
 
 1. `alter table public.user_profiles add column handle_confirmed boolean not null default true;`
 2. `handle_new_user` v3 as in §4.3–4.4 (the v2 body stays in the file, commented, as the rollback).
@@ -495,7 +495,7 @@ screenshots that show the new way in.
 
 ## 14. Files touched (expected)
 
-- `supabase/migrations/20261011120000_oauth_handles.sql`; `supabase/config.toml`
+- `supabase/migrations/20261011150000_oauth_handles.sql`; `supabase/config.toml`
 - `supabase/functions/extension-session/`, `supabase/functions/apple-token-exchange/`,
   `supabase/functions/delete-account/index.ts`, `supabase/functions/_shared/appleClientSecret.ts`
 - `src/pages/Auth.tsx`, `src/components/auth/ProviderButtons.tsx`,

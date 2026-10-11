@@ -992,7 +992,7 @@ homepage.")
   focus); placeholders are examples, never the label again (`you@example.com`, `At least 8
   characters`). For password managers the email is the login on both forms
   (`autocomplete="username"`, with `current-password` / `new-password`); the @handle is
-  `autocomplete="off"`, so it's never saved as the login.The username field is JetBrains Mono after an `@`, and under it the address it
+  `autocomplete="off"`, so it's never saved as the login. The username field is JetBrains Mono after an `@`, and under it the address it
   makes: `gostash.it/feed/you`. Errors are machine lines under the field (`✕ that username is
   taken. try another.`), wrapping, tied to the field with `aria-describedby`.
 - **The provider pair** (2026-10-11): above the fields on both tabs, Google's rendered button then
