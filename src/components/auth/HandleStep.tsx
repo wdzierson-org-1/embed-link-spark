@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FieldError } from '@/components/auth/AuthShell';
 import { SubmitButton, field } from '@/components/auth/AuthControls';
-import { USERNAME_RE, isUsernameTaken, sanitizeUsername } from '@/components/auth/usernameAvailability';
+import { USERNAME_RE, isFallbackDisplayName, isUsernameTaken, sanitizeUsername } from '@/components/auth/usernameAvailability';
 
 const TAKEN = 'that username is taken. try another.';
 const FORMAT = '3–20 letters and numbers.';
@@ -17,16 +17,18 @@ type HandleStepProps = {
   serverUsername: string;
   /** What the field starts with: the parent's suggestion (it may be serverUsername), or '' when nothing usable exists */
   initialUsername: string;
+  /** The sign-in email: a display name that is only its local part is still the server's fallback (spec §4.4) */
+  email?: string | null;
   onClaimed: () => void;
 };
 
 /**
  * The one-time confirm for a server-generated handle (spec §4.3): one ink Continue. Writes
  * username + handle_confirmed in one update; the DB lock trigger makes this the only moment a
- * handle can ever change. The display name follows the claim while it is still the server's
- * fallback; a name the person chose is left alone.
+ * handle can ever change. The display name follows the claim while it is still a server
+ * fallback (spec §4.4); a name the person chose is left alone.
  */
-export const HandleStep = ({ userId, serverUsername, initialUsername, onClaimed }: HandleStepProps) => {
+export const HandleStep = ({ userId, serverUsername, initialUsername, email, onClaimed }: HandleStepProps) => {
   const [username, setUsername] = useState(initialUsername);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -47,8 +49,6 @@ export const HandleStep = ({ userId, serverUsername, initialUsername, onClaimed 
     };
   }, [username, serverUsername, userId]);
 
-  const failed = (message: string) => toast({ title: "That didn't take.", description: message, variant: 'destructive' });
-
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!USERNAME_RE.test(username)) {
@@ -56,16 +56,12 @@ export const HandleStep = ({ userId, serverUsername, initialUsername, onClaimed 
       return;
     }
     setBusy(true);
-    // The display name follows the claim only while it is still the server's fallback (empty, or the
-    // generated handle itself); a name the person has is never overwritten, so an unreadable profile
-    // stops here rather than guessing.
+    // The display name follows the claim only while it is still a server fallback; a name the person
+    // has is never overwritten. If the lookup fails we cannot tell which it is, so we do not guess:
+    // the claim (the point of this step) goes ahead and the name stays as it is.
     const { data: profile, error: readError } = await supabase.from('user_profiles').select('display_name').eq('id', userId).maybeSingle();
-    if (readError) {
-      setBusy(false);
-      failed(readError.message);
-      return;
-    }
-    const nameFollowsHandle = !profile?.display_name || profile.display_name === serverUsername;
+    if (readError) console.warn('[handle] display name lookup failed:', readError.message);
+    const nameFollowsHandle = !readError && isFallbackDisplayName(profile?.display_name, serverUsername, email);
     const { error: dbError } = await supabase
       .from('user_profiles')
       .update({ username, handle_confirmed: true, ...(nameFollowsHandle ? { display_name: username } : {}) })
@@ -73,7 +69,7 @@ export const HandleStep = ({ userId, serverUsername, initialUsername, onClaimed 
     setBusy(false);
     if (dbError) {
       if (dbError.code === '23505') setError(TAKEN);
-      else failed(dbError.message);
+      else toast({ title: "That didn't take.", description: dbError.message, variant: 'destructive' });
       return;
     }
     onClaimed();

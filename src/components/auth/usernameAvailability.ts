@@ -12,6 +12,12 @@ export const suggestHandle = (fullName?: string | null) => {
   return s.length >= 3 ? s : null;
 };
 
+/** The server's display-name fallbacks (spec §4.4): nothing, the handle itself, or the email's local part */
+export const isFallbackDisplayName = (displayName: string | null | undefined, username: string, email?: string | null) => {
+  const local = (email ?? '').split('@')[0];
+  return !displayName || displayName === username || (local !== '' && displayName === local);
+};
+
 /** Live availability probe; a person's own row never counts as taken */
 export async function isUsernameTaken(username: string, exceptUserId?: string): Promise<boolean> {
   const { data, error } = await supabase.from('user_profiles').select('id').eq('username', username).maybeSingle();

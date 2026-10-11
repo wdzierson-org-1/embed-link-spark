@@ -34,9 +34,9 @@ const toast = vi.fn();
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
 
 // The server named this person stash3; the parent suggests willdzierson from their provider name
-const setup = (initial = 'willdzierson') => {
+const setup = (initial = 'willdzierson', email?: string) => {
   const onClaimed = vi.fn();
-  render(<HandleStep userId="u1" serverUsername="stash3" initialUsername={initial} onClaimed={onClaimed} />);
+  render(<HandleStep userId="u1" serverUsername="stash3" initialUsername={initial} email={email} onClaimed={onClaimed} />);
   return { onClaimed, input: screen.getByLabelText('Username') as HTMLInputElement, button: screen.getByRole('button', { name: /continue/i }) };
 };
 
@@ -54,7 +54,7 @@ describe('HandleStep', () => {
     db.update.mockResolvedValue({ error: null });
     toast.mockClear();
   });
-  afterEach(() => { vi.useRealTimers(); });
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
   it('prefills the handle and shows the address it makes', () => {
     const { input } = setup();
@@ -133,12 +133,13 @@ describe('HandleStep', () => {
     expect(button).toBeEnabled();
   });
 
-  it.each([
-    ['the server fallback', 'stash3'],
-    ['empty', ''],
-    ['missing', null],
-  ])('replaces a fallback display name with the claimed handle (%s)', async (_which, displayName) => {
-    db.profile = { display_name: displayName };
+  it.each<[string, { display_name: string | null } | null]>([
+    ['the server fallback', { display_name: 'stash3' }],
+    ['empty', { display_name: '' }],
+    ['missing', { display_name: null }],
+    ['no row', null], // the lookup worked and found nothing: not an error, so not a reason to hold back
+  ])('replaces a fallback display name with the claimed handle (%s)', async (_which, profile) => {
+    db.profile = profile;
     const { onClaimed, button } = setup();
     fireEvent.click(button);
     await waitFor(() => expect(onClaimed).toHaveBeenCalled());
@@ -154,14 +155,24 @@ describe('HandleStep', () => {
     expect(db.updated).not.toHaveProperty('display_name');
   });
 
-  it('says so and writes nothing when the profile cannot be read', async () => {
+  it('replaces a display name that is only the email local part with the claimed handle', async () => {
+    db.profile = { display_name: 'kz8f3q2m' };
+    const { onClaimed, button } = setup('willdzierson', 'kz8f3q2m@privaterelay.appleid.com');
+    fireEvent.click(button);
+    await waitFor(() => expect(onClaimed).toHaveBeenCalled());
+    expect(db.updated).toEqual({ username: 'willdzierson', handle_confirmed: true, display_name: 'willdzierson' });
+  });
+
+  it('claims without touching the display name when its lookup fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     db.profile = null;
     db.readError = { message: 'network down' };
     const { onClaimed, button } = setup();
     fireEvent.click(button);
-    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ description: 'network down', variant: 'destructive' })));
-    expect(db.updated).toBeNull();
-    expect(onClaimed).not.toHaveBeenCalled();
-    await waitFor(() => expect(button).toBeEnabled()); // they can try again
+    await waitFor(() => expect(onClaimed).toHaveBeenCalled());
+    expect(db.updated).toEqual({ username: 'willdzierson', handle_confirmed: true });
+    expect(db.updated).not.toHaveProperty('display_name'); // never guess
+    expect(warn).toHaveBeenCalledWith('[handle] display name lookup failed:', 'network down');
+    expect(toast).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,5 @@
 // src/components/auth/usernameAvailability.test.ts
-import { USERNAME_RE, isUsernameTaken, sanitizeUsername, suggestHandle } from './usernameAvailability';
+import { USERNAME_RE, isFallbackDisplayName, isUsernameTaken, sanitizeUsername, suggestHandle } from './usernameAvailability';
 
 const probe = vi.hoisted(() => ({ row: null as null | { id: string } }));
 vi.mock('@/integrations/supabase/client', () => ({
@@ -28,5 +28,13 @@ describe('usernameAvailability', () => {
     expect(await isUsernameTaken('will', 'u1')).toBe(false);
     probe.row = null;
     expect(await isUsernameTaken('free')).toBe(false);
+  });
+
+  it('knows a server fallback display name when it sees one', () => {
+    expect(isFallbackDisplayName('stash3', 'stash3', 'x@privaterelay.appleid.com')).toBe(true); // the handle itself
+    expect(isFallbackDisplayName('will', 'will7', 'will@gostash.it')).toBe(true); // the email's local part
+    expect(isFallbackDisplayName(null, 'will7', 'will@gostash.it')).toBe(true); // nothing
+    expect(isFallbackDisplayName('Will Dzierson', 'will7', 'will@gostash.it')).toBe(false); // a name the person has
+    expect(isFallbackDisplayName('', 'a', undefined)).toBe(true);
   });
 });
