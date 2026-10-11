@@ -50,6 +50,15 @@ describe('handlePrefill', () => {
     expect(handlePrefill(person('will@example.com', { full_name: 42 }), 'stash3')).toBe('stash3');
   });
 
+  it('lets a name the client just learned win over the metadata name and the server handle', () => {
+    // Apple sends its name in the sign-in event itself; the metadata write that records it can land after the claim step opens
+    expect(handlePrefill(person('will@example.com'), 'stash3', 'Will Dzierson')).toBe('willdzierson');
+    expect(handlePrefill(person('will@example.com', { full_name: 'Someone Else' }), 'stash3', 'Will Dzierson')).toBe('willdzierson');
+    // no such name: the metadata name, then the rest of the chain, exactly as before
+    expect(handlePrefill(person('will@example.com', { full_name: 'Will Dzierson' }), 'stash3', null)).toBe('willdzierson');
+    expect(handlePrefill(person('will@example.com'), 'stash3', undefined)).toBe('stash3');
+  });
+
   it('keeps the server handle when there is no name and the forms would accept it', () => {
     expect(handlePrefill(person('will@example.com'), 'stash3')).toBe('stash3');
   });

@@ -20,13 +20,18 @@ const text = (v: unknown) => (typeof v === 'string' ? v : undefined);
  * What the claim step's field starts with (spec §4.3), most personal first: the name the provider
  * gave us, else the server's own handle when the forms would accept it, else the email's local part
  * (never a relay address's, as in the trigger), else nothing. A guest-shaped server handle
- * (guest-ab12cd34) fails the format, so it is never the prefill.
+ * (guest-ab12cd34) fails the format, so it is never the prefill. `nameOverride` is a name the client
+ * learned in this very sign-in (Apple's, which the metadata may not hold yet) and outranks the metadata's.
  */
-export const handlePrefill = (user: { email?: string | null; user_metadata?: Record<string, unknown> }, serverUsername: string): string => {
+export const handlePrefill = (
+  user: { email?: string | null; user_metadata?: Record<string, unknown> },
+  serverUsername: string,
+  nameOverride?: string | null,
+): string => {
   const fullName = text(user.user_metadata?.full_name) ?? text(user.user_metadata?.name);
   const [local, domain = ''] = (user.email ?? '').split('@');
   const emailLocalPart = domain.toLowerCase() === APPLE_RELAY_DOMAIN ? '' : local;
-  return suggestHandle(fullName) ?? (USERNAME_RE.test(serverUsername) ? serverUsername : suggestHandle(emailLocalPart) ?? '');
+  return suggestHandle(nameOverride ?? fullName) ?? (USERNAME_RE.test(serverUsername) ? serverUsername : suggestHandle(emailLocalPart) ?? '');
 };
 
 /** The server's display-name fallbacks (spec §4.4): nothing, the handle itself, or the email's local part */

@@ -3,10 +3,11 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Auth from './Auth';
 import { writeAppleName } from '@/components/auth/appleName';
 
-const { mockReset, mockToast, mockInvoke } = vi.hoisted(() => ({
+const { mockReset, mockToast, mockInvoke, pairMounted } = vi.hoisted(() => ({
   mockReset: vi.fn(() => Promise.resolve({ data: {}, error: null })),
   mockToast: vi.fn(),
   mockInvoke: vi.fn(async () => ({ data: { stored: true }, error: null })),
+  pairMounted: vi.fn(), // called each time the stubbed provider pair attaches to the page, even for a single frame
 }));
 
 const auth = vi.hoisted(() => ({
@@ -32,19 +33,25 @@ vi.mock('@/integrations/supabase/client', () => ({
 }));
 
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => auth }));
-vi.mock('@/components/auth/ProviderButtons', () => ({
-  ProviderButtons: ({ onToken }: { onToken: (t: unknown) => void }) => (
-    <>
-      <button type="button" onClick={() => onToken({ provider: 'google', token: 'g.jwt', nonce: 'raw' })}>Continue with Google</button>
-      <button
-        type="button"
-        onClick={() => onToken({ provider: 'apple', token: 'a.jwt', nonce: 'raw', appleCode: 'apple-code', appleName: { firstName: 'Will', lastName: 'Dzierson' } })}
-      >
-        Continue with Apple
-      </button>
-    </>
-  ),
-}));
+vi.mock('@/components/auth/ProviderButtons', () => {
+  // a stable ref callback: it fires when the pair attaches, not on every re-render
+  const attached = (el: HTMLElement | null) => {
+    if (el) pairMounted();
+  };
+  return {
+    ProviderButtons: ({ onToken }: { onToken: (t: unknown) => void }) => (
+      <>
+        <button ref={attached} type="button" onClick={() => onToken({ provider: 'google', token: 'g.jwt', nonce: 'raw' })}>Continue with Google</button>
+        <button
+          type="button"
+          onClick={() => onToken({ provider: 'apple', token: 'a.jwt', nonce: 'raw', appleCode: 'apple-code', appleName: { firstName: 'Will', lastName: 'Dzierson' } })}
+        >
+          Continue with Apple
+        </button>
+      </>
+    ),
+  };
+});
 vi.mock('@/components/auth/HandleStep', () => ({
   HandleStep: ({ onClaimed, initialUsername, serverUsername }: { onClaimed: () => void; initialUsername: string; serverUsername: string }) => (
     <button type="button" title={serverUsername} onClick={onClaimed}>Continue as {initialUsername}</button>
@@ -182,6 +189,47 @@ describe('Auth — Google and Apple', () => {
     expect(screen.queryByText('HOME PAGE')).toBeNull();
   });
 
+  it('shows no form while opening, only the bar saying so', () => {
+    auth.user = { id: 'u1', email: 'will@example.com' };
+    renderAuth('/auth?mode=handle');
+    expect(screen.getByRole('status')).toHaveTextContent('opening…');
+    expect(screen.queryByRole('tab')).toBeNull();
+    expect(screen.queryByLabelText('Email')).toBeNull();
+    expect(pairMounted).not.toHaveBeenCalled();
+  });
+
+  it('goes from opening straight to the claim step, never showing the forms in between', () => {
+    auth.user = { id: 'u1', email: 'will@example.com' };
+    const view = renderAuth('/auth?mode=handle');
+    auth.handle = { username: 'stash3', confirmed: false };
+    view.rerender(authRoutes('/auth?mode=handle'));
+    expect(screen.getByText('Claim your address.')).toBeInTheDocument();
+    expect(pairMounted).not.toHaveBeenCalled();
+  });
+
+  it('sends a confirmed person on without ever showing them the forms', async () => {
+    auth.user = { id: 'u1', email: 'will@example.com' };
+    auth.handle = { username: 'will', confirmed: true };
+    renderAuth('/auth?mode=handle');
+    expect(await screen.findByText('HOME PAGE')).toBeInTheDocument();
+    expect(pairMounted).not.toHaveBeenCalled();
+  });
+
+  it('leaves the handle view when the person signs out', () => {
+    auth.user = { id: 'u1', email: 'will@example.com' };
+    auth.handle = { username: 'stash3', confirmed: false };
+    const view = renderAuth('/auth?mode=handle');
+    expect(screen.getByText('Claim your address.')).toBeInTheDocument();
+    expect(pairMounted).not.toHaveBeenCalled(); // they arrived at the step, not at the forms
+    // signed out in another tab
+    auth.user = null;
+    auth.handle = null;
+    view.rerender(authRoutes('/auth?mode=handle'));
+    expect(screen.queryByText('Claim your address.')).toBeNull();
+    expect(screen.getByText('Welcome back.')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /sign in/i })).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('opens the handle step for an unconfirmed handle, then routes to returnTo after the claim', async () => {
     auth.user = { id: 'u1', email: 'will@example.com', user_metadata: { full_name: 'Will Dzierson' } };
     auth.handle = { username: 'stash3', confirmed: false };
@@ -234,11 +282,42 @@ describe('Auth — Google and Apple', () => {
   });
 
   it('hands Apple’s name to the profile and its one-shot code to the server', async () => {
-    auth.user = { id: 'u1', email: 'kz8f3q2m@privaterelay.appleid.com' };
+    // signing in is what brings the session into being
+    auth.signInWithIdToken.mockImplementationOnce(async () => {
+      auth.user = { id: 'u1', email: 'kz8f3q2m@privaterelay.appleid.com' };
+      return { error: null };
+    });
     renderAuth();
     fireEvent.click(screen.getByRole('button', { name: /continue with apple/i }));
     await waitFor(() => expect(writeAppleName).toHaveBeenCalledWith(auth.user, { firstName: 'Will', lastName: 'Dzierson' }));
     expect(auth.signInWithIdToken).toHaveBeenCalledWith({ provider: 'apple', token: 'a.jwt', nonce: 'raw' });
     expect(mockInvoke).toHaveBeenCalledWith('apple-token-exchange', { body: { code: 'apple-code', client: 'web' } });
+  });
+
+  it('prefills the claim step from the name Apple just sent, before the profile holds any name', async () => {
+    // by the time the handle lands the person is signed in, but no metadata has the name yet
+    auth.signInWithIdToken.mockImplementationOnce(async () => {
+      auth.user = { id: 'u1', email: 'kz8f3q2m@privaterelay.appleid.com' };
+      auth.handle = { username: 'stash3', confirmed: false };
+      return { error: null };
+    });
+    renderAuth();
+    fireEvent.click(screen.getByRole('button', { name: /continue with apple/i }));
+    expect(await screen.findByRole('button', { name: 'Continue as willdzierson' })).toBeInTheDocument();
+  });
+
+  it('forgets a failed Apple attempt’s name before the next sign-in', async () => {
+    auth.signInWithIdToken.mockResolvedValueOnce({ error: { message: 'Apple said no' } });
+    renderAuth();
+    fireEvent.click(screen.getByRole('button', { name: /continue with apple/i }));
+    await waitFor(() => expect(mockToast).toHaveBeenCalled());
+    // then someone signs in with Google: their own profile name wins
+    auth.signInWithIdToken.mockImplementationOnce(async () => {
+      auth.user = { id: 'u2', email: 'gina@example.com', user_metadata: { full_name: 'Gina Google' } };
+      auth.handle = { username: 'stash4', confirmed: false };
+      return { error: null };
+    });
+    fireEvent.click(screen.getByRole('button', { name: /continue with google/i }));
+    expect(await screen.findByRole('button', { name: 'Continue as ginagoogle' })).toBeInTheDocument();
   });
 });

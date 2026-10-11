@@ -45,6 +45,7 @@ const Auth = () => {
   const [resetSent, setResetSent] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [providerBusy, setProviderBusy] = useState(false);
+  const [nameHint, setNameHint] = useState<string | null>(null);
 
   const { signIn, signUp, signInWithIdToken, user, handle, refreshHandle } = useAuth();
   const { registerPhoneNumber } = usePhoneNumber();
@@ -62,15 +63,15 @@ const Auth = () => {
   const destination = returnTo && commentItem ? `${returnTo}?openComment=${commentItem}` : (returnTo ?? '/home');
 
   // The gate (spec §6.3): a real account leaves this page only once its handle is known. Unknown →
-  // the bar says `| opening…`; unconfirmed → the claim step; confirmed → onward. `mode=handle`
-  // (Index sends unconfirmed people here) needs nothing special — the same effect decides.
+  // the bar says `| opening…` and nothing else shows; unconfirmed → the claim step; confirmed →
+  // onward. `mode=handle` (Index sends unconfirmed people here) needs nothing special — the same
+  // rules decide. The view follows the person in the very render that learns who they are, not in an
+  // effect after the paint, so no frame shows the forms to someone who is signed in, or "Claim your
+  // address." to someone who signed out in another tab.
+  if (isRealUser && handle && !handle.confirmed && view !== 'handle') setView('handle');
+  if (!isRealUser && view === 'handle') setView('tabs');
   useEffect(() => {
-    if (!isRealUser || !handle) return;
-    if (!handle.confirmed) {
-      setView('handle');
-      return;
-    }
-    navigate(destination);
+    if (isRealUser && handle?.confirmed) navigate(destination);
   }, [isRealUser, handle, navigate, destination]);
 
   const handleSignIn = async (e: React.FormEvent) => {
@@ -181,6 +182,12 @@ const Auth = () => {
   // A provider's identity token → Supabase. Apple's extras ride along: the name (first time only)
   // and the one-shot authorization code the server exchanges so deletion can revoke (spec §6.2).
   const handleProviderToken = async (t: ProviderIdToken) => {
+    // Apple sends the name once, in this event, and the profile metadata only learns it after a network
+    // write that can land after the claim step has opened; so the name rides in state to the prefill,
+    // set before anything is awaited. Every token sets it (to null when it brings no name), so one
+    // attempt's name never reaches the next sign-in's step.
+    const appleName = t.provider === 'apple' ? [t.appleName?.firstName, t.appleName?.lastName].filter(Boolean).join(' ').trim() : '';
+    setNameHint(appleName || null);
     // `| signing in…` is for while the token is with Supabase; after that the bar belongs to the gate
     setProviderBusy(true);
     const { error } = await signInWithIdToken({ provider: t.provider, token: t.token, nonce: t.nonce }).finally(() => setProviderBusy(false));
@@ -251,6 +258,19 @@ const Auth = () => {
     </div>
   );
 
+  // A signed-in person is never shown the forms: the claim step while their handle is unconfirmed,
+  // otherwise nothing under the title but the bar (`| opening…`, or on their way out)
+  const claimStep =
+    view === 'handle' && user && handle ? (
+      <HandleStep
+        userId={user.id}
+        serverUsername={handle.username}
+        email={user.email}
+        initialUsername={handlePrefill(user, handle.username, nameHint)}
+        onClaimed={() => void refreshHandle()}
+      />
+    ) : null;
+
   return (
     <AuthShell
       address={copy.address}
@@ -258,15 +278,7 @@ const Auth = () => {
       prompt={copy.prompt}
       busy={isRealUser && !handle ? 'opening…' : providerBusy ? 'signing in…' : null}
     >
-      {view === 'handle' && user && handle ? (
-        <HandleStep
-          userId={user.id}
-          serverUsername={handle.username}
-          email={user.email}
-          initialUsername={handlePrefill(user, handle.username)}
-          onClaimed={() => void refreshHandle()}
-        />
-      ) : view === 'reset' ? (
+      {isRealUser ? claimStep : view === 'reset' ? (
         resetSent ? (
           <div className="space-y-5">
             <p className="text-[15px] leading-[1.55] text-ink">
