@@ -47,26 +47,36 @@ Deno.serve(async (req) => {
   const client = body.client === "web" || body.client === "ios" ? body.client : null;
   if (!code || !client) return json(400, { error: "code and client ('web' | 'ios') are required" });
 
-  const env = appleEnv();
-  const clientId = client === "web" ? env.servicesId : env.bundleId;
-  const clientSecret = await makeAppleClientSecret({ teamId: env.teamId, keyId: env.keyId, clientId, privateKeyPem: env.privateKeyPem });
-  const form = new URLSearchParams({ client_id: clientId, client_secret: clientSecret, code, grant_type: "authorization_code" });
-  if (client === "web") form.set("redirect_uri", APPLE_WEB_REDIRECT_URI);
+  // From here on anything can throw (a missing Apple secret, an unusable key, Apple unreachable).
+  // Answer with JSON and the CORS headers, like delete-account, not the runtime's bare 500.
+  try {
+    const env = appleEnv();
+    const clientId = client === "web" ? env.servicesId : env.bundleId;
+    const clientSecret = await makeAppleClientSecret({ teamId: env.teamId, keyId: env.keyId, clientId, privateKeyPem: env.privateKeyPem });
+    const form = new URLSearchParams({ client_id: clientId, client_secret: clientSecret, code, grant_type: "authorization_code" });
+    if (client === "web") form.set("redirect_uri", APPLE_WEB_REDIRECT_URI);
 
-  const res = await fetch(APPLE_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: form.toString(),
-  });
-  const data = (await res.json().catch(() => ({}))) as { refresh_token?: unknown; error?: unknown };
-  if (!res.ok || typeof data.refresh_token !== "string") {
-    console.warn(`[APPLE-TOKEN-EXCHANGE] apple ${res.status} ${JSON.stringify(data).slice(0, 200)}`);
-    return json(502, { stored: false, error: typeof data.error === "string" ? data.error : `apple ${res.status}` });
+    const res = await fetch(APPLE_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form.toString(),
+    });
+    const data = (await res.json().catch(() => ({}))) as { refresh_token?: unknown; error?: unknown };
+    if (!res.ok || typeof data.refresh_token !== "string") {
+      // Never log Apple's body: on a 2xx without a refresh token it carries access and id tokens.
+      const reason = typeof data.error === "string" ? data.error : null;
+      console.warn(`[APPLE-TOKEN-EXCHANGE] apple ${res.status} ${reason ?? "no refresh_token"}`);
+      return json(502, { stored: false, error: reason ?? `apple ${res.status}` });
+    }
+
+    const { error } = await admin
+      .from("apple_sign_in_tokens")
+      .upsert({ user_id: user.id, client_id: clientId, refresh_token: data.refresh_token }, { onConflict: "user_id,client_id" });
+    if (error) return json(500, { stored: false, error: error.message });
+    return json(200, { stored: true });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.warn("[APPLE-TOKEN-EXCHANGE] failed", message);
+    return json(500, { stored: false, error: message });
   }
-
-  const { error } = await admin
-    .from("apple_sign_in_tokens")
-    .upsert({ user_id: user.id, client_id: clientId, refresh_token: data.refresh_token }, { onConflict: "user_id,client_id" });
-  if (error) return json(500, { stored: false, error: error.message });
-  return json(200, { stored: true });
 });
