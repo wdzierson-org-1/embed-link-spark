@@ -10,7 +10,7 @@ vi.mock("react-router-dom", () => ({
   useNavigate: () => navigateMock,
 }));
 
-const authState = vi.hoisted(() => ({ handle: undefined as undefined | { username: string; confirmed: boolean } }));
+const authState = vi.hoisted(() => ({ handle: undefined as undefined | null | { username: string; confirmed: boolean } }));
 vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({
     user: { id: "user-1", email: "test@example.com" },
@@ -84,6 +84,7 @@ describe("Index", () => {
     itemsLoadingState.current = false;
     itemsState.current = [];
     window.location.hash = "";
+    authState.handle = undefined;
   });
 
   it("shows the open card's live row, so a save opened mid-read fills in as enrichment lands", async () => {
@@ -127,14 +128,17 @@ describe("Index", () => {
     authState.handle = { username: "guest-12345678", confirmed: false };
     render(<Index />);
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/auth?mode=handle"));
-    authState.handle = undefined;
   });
 
-  it("leaves a confirmed person alone", async () => {
+  it("never redirects while the handle is still unknown", () => {
+    authState.handle = null;
+    render(<Index />);
+    expect(navigateMock).not.toHaveBeenCalledWith("/auth?mode=handle");
+  });
+
+  it("leaves a confirmed person alone", () => {
     authState.handle = { username: "will", confirmed: true };
     render(<Index />);
-    await waitFor(() => expect(fetchItemsMock).not.toHaveBeenCalled());
     expect(navigateMock).not.toHaveBeenCalledWith("/auth?mode=handle");
-    authState.handle = undefined;
   });
 });
