@@ -2,10 +2,16 @@
 -- §4.3–4.4, §5.2). Applied to prod through the Management API and recorded in
 -- supabase_migrations.schema_migrations by hand (see the plan's Task 2).
 
--- 1. The handle flag. Existing rows chose theirs, so the default is true; the trigger below sets
---    false only when it had to generate one.
+-- 1. The handle flag. Existing rows chose theirs — except v2's generated guests, backfilled to
+--    false below — so the default is true; the trigger below sets false only when it had to
+--    generate one.
 alter table public.user_profiles
   add column if not exists handle_confirmed boolean not null default true;
+
+-- Today's guests (v2's only generated shape) never chose their handle: give them the step.
+update public.user_profiles
+   set handle_confirmed = false
+ where handle_confirmed and username = 'guest-' || substr(id::text, 1, 8);
 
 -- 2. handle_new_user v3. The email forms (web + iOS) send `username` in the metadata → used as-is,
 --    confirmed. Anything else (Google, Apple, anonymous) gets a readable handle:
@@ -39,10 +45,16 @@ declare
   i integer := 2;
 begin
   if chosen is not null and chosen !~ '^[a-z0-9]{3,20}$' then chosen := null; end if;
+
+  -- A display name from the metadata or the email; when there is none, the handle itself (the
+  -- final candidate, suffix included), so a relay-address Apple sign-up reads "stash2" not "stash".
+  display := coalesce(nullif(meta->>'display_name', ''), nullif(meta->>'full_name', ''), nullif(meta->>'name', ''),
+                      case when relay then null else local_part end);
+
   if chosen is not null then
     insert into public.user_profiles (id, username, display_name, avatar_url, handle_confirmed, created_at, updated_at)
     values (new.id, chosen,
-            coalesce(meta->>'display_name', meta->>'full_name', meta->>'name', local_part, chosen),
+            coalesce(display, chosen),
             avatar, true, new.created_at, now());
     return new;
   end if;
@@ -59,10 +71,6 @@ begin
     base := left(base, 20);
   end if;
 
-  -- A display name from the metadata or the email; when there is none, the handle itself (the
-  -- final candidate, suffix included), so a relay-address Apple sign-up reads "stash2" not "stash".
-  display := coalesce(meta->>'display_name', meta->>'full_name', meta->>'name',
-                      case when relay then null else local_part end);
   candidate := base;
   loop
     begin
@@ -87,6 +95,7 @@ $$;
 create or replace function public.user_profiles_lock_handle()
 returns trigger
 language plpgsql
+set search_path to ''
 as $$
 begin
   if new.username is distinct from old.username then
@@ -96,6 +105,9 @@ begin
     if new.username !~ '^[a-z0-9]{3,20}$' then
       raise exception 'username must be 3-20 lowercase letters or digits' using errcode = 'check_violation';
     end if;
+  end if;
+  if new.handle_confirmed and not old.handle_confirmed and new.username !~ '^[a-z0-9]{3,20}$' then
+    raise exception 'a handle must be 3-20 lowercase letters or digits before it is confirmed' using errcode = 'check_violation';
   end if;
   if old.handle_confirmed and not new.handle_confirmed then
     raise exception 'handle_confirmed cannot be unset' using errcode = 'check_violation';
