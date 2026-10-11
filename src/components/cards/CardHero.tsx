@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Pause, Play, X } from 'lucide-react';
 import { SUPABASE_URL } from '@/integrations/supabase/client';
 import { domainOfUrl } from '@/utils/linkFlavor';
@@ -28,6 +28,8 @@ import {
  * Cover crops are subject-aware (useSubjectCrop): the image is sampled once on load and the
  * crop window slides to keep the detected subject in view. Images load `crossOrigin="anonymous"`
  * for that read; every source we render here (storage bucket, image-proxy) allows it.
+ * Request-policy props precede `src`: WebKit can start fetching as soon as React assigns it,
+ * before later lazy-loading/CORS props would take effect.
  *
  * While Stash reads a save its picture is unresolved (DESIGN-v2 §8, "Resolve"): photos and
  * covers go to pixel blocks with a reading lens (usePixelImage), drawn placeholders, waveforms
@@ -46,71 +48,67 @@ const PixelCanvas = ({ canvasRef }: { canvasRef: React.RefObject<HTMLCanvasEleme
   <canvas ref={canvasRef} aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" />
 );
 
-/** Under a picture still downloading: the mosaic, so the frame never sits empty and grey */
-const PictureNotYet = ({ loaded }: { loaded: boolean }) => (loaded ? null : <PixelMosaic className="absolute inset-0" />);
+/** The mosaic means enrichment is happening; an ordinary download uses the quiet frame fill. */
+const PictureNotYet = ({ loaded, reading, arriving }: { loaded: boolean } & ResolveProps) =>
+  !loaded && (reading || arriving) ? <PixelMosaic className="absolute inset-0" /> : null;
+
+interface AspectAwareImageProps extends ResolveProps {
+  src: string;
+  alt: string;
+  onError?: () => void;
+}
 
 /** Chooses cover vs contained-on-blur from the image's real aspect ratio */
-export const AspectAwareImage = ({
+export const AspectAwareImage = (props: AspectAwareImageProps) => <AspectAwareImageSource key={props.src} {...props} />;
+
+// A replacement source gets fresh load/crop/resolve state. A portrait discovered
+// after load keeps the same foreground node and its already-decoded image.
+const AspectAwareImageSource = ({
   src,
   alt,
   onError,
   reading = false,
   arriving = false,
-}: {
-  src: string;
-  alt: string;
-  onError?: () => void;
-} & ResolveProps) => {
+}: AspectAwareImageProps) => {
   const [isPortrait, setIsPortrait] = useState(false);
   const crop = useSubjectCrop();
-  const tallFrameRef = useRef<HTMLDivElement>(null);
+  const cropImage = crop.onImageLoad;
   const imgRef = useRef<HTMLImageElement>(null);
-  const pixel = usePixelImage({ frameRef: isPortrait ? tallFrameRef : crop.frameRef, imgRef, reading, arriving });
+  const pixel = usePixelImage({ frameRef: crop.frameRef, imgRef, reading, arriving });
+
+  const inspectImage = useCallback((img: HTMLImageElement) => {
+    const portrait = img.naturalHeight > img.naturalWidth * 1.05;
+    setIsPortrait(portrait);
+    if (!portrait) cropImage(img);
+  }, [cropImage]);
+
+  useLayoutEffect(() => {
+    const img = imgRef.current;
+    if (img?.complete && img.naturalWidth > 0) inspectImage(img);
+  }, [inspectImage]);
 
   const handleLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = event.currentTarget;
-    if (img.naturalHeight > img.naturalWidth * 1.05) {
-      // The portrait <img> that replaces this one starts the resolve when it loads
-      setIsPortrait(true);
-      return;
-    }
-    crop.onLoad(event);
+    inspectImage(event.currentTarget);
     pixel.onLoad();
   };
-
-  if (isPortrait) {
-    return (
-      <div ref={tallFrameRef} className={`relative ${HERO_TALL} overflow-hidden bg-ink ${HERO_EDGE}`}>
-        <img src={src} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-125 object-cover opacity-40 blur-xl" />
-        <PictureNotYet loaded={pixel.loaded} />
-        <img
-          ref={imgRef}
-          src={src}
-          alt={alt}
-          className="relative mx-auto h-full object-contain"
-          style={pixel.active ? { opacity: 0 } : undefined}
-          loading="lazy"
-          decoding="async"
-          onLoad={pixel.onLoad}
-          onError={onError}
-        />
-        {pixel.active && <PixelCanvas canvasRef={pixel.canvasRef} />}
-      </div>
-    );
-  }
+  const imageStyle = isPortrait ? undefined : crop.style;
 
   return (
-    <div ref={crop.frameRef} className={`relative ${HERO_STANDARD} overflow-hidden bg-fill ${HERO_EDGE}`}>
-      <PictureNotYet loaded={pixel.loaded} />
+    <div ref={crop.frameRef} className={`relative ${isPortrait ? `${HERO_TALL} bg-ink` : `${HERO_STANDARD} bg-fill`} overflow-hidden ${HERO_EDGE}`}>
+      {isPortrait && pixel.loaded && (
+        <img loading="lazy" decoding="async" crossOrigin="anonymous" src={src} alt="" aria-hidden
+          className="absolute inset-0 h-full w-full scale-125 object-cover opacity-40 blur-xl" />
+      )}
+      <PictureNotYet loaded={pixel.loaded} reading={reading} arriving={arriving} />
       <img
         ref={imgRef}
-        src={src}
-        alt={alt}
-        className="relative h-full w-full object-cover"
-        style={pixel.active ? { ...crop.style, opacity: 0 } : crop.style}
         loading="lazy"
         decoding="async"
         crossOrigin="anonymous"
+        src={src}
+        alt={alt}
+        className={isPortrait ? 'relative mx-auto h-full object-contain' : 'relative h-full w-full object-cover'}
+        style={pixel.active ? { ...imageStyle, opacity: 0 } : imageStyle}
         onLoad={handleLoad}
         onError={onError}
       />
@@ -145,13 +143,20 @@ interface LinkCoverProps extends ResolveProps {
  * hotlink retry once through the image-proxy edge function, then hand control back so the
  * hero can fall back to the placeholder.
  */
-export const LinkCover = ({ imageSource, alt, tall, playOverlay, onFailed, reading = false, arriving = false }: LinkCoverProps) => {
+export const LinkCover = (props: LinkCoverProps) => <LinkCoverSource key={props.imageSource} {...props} />;
+
+const LinkCoverSource = ({ imageSource, alt, tall, playOverlay, onFailed, reading = false, arriving = false }: LinkCoverProps) => {
   const [src, setSrc] = useState(imageSource);
   const [triedProxy, setTriedProxy] = useState(imageSource.includes('/functions/v1/image-proxy'));
   const crop = useSubjectCrop();
-  const tallFrameRef = useRef<HTMLDivElement>(null);
+  const cropImage = crop.onImageLoad;
   const imgRef = useRef<HTMLImageElement>(null);
-  const pixel = usePixelImage({ frameRef: tall ? tallFrameRef : crop.frameRef, imgRef, reading, arriving });
+  const pixel = usePixelImage({ frameRef: crop.frameRef, imgRef, reading, arriving });
+
+  useLayoutEffect(() => {
+    const img = imgRef.current;
+    if (!tall && img?.complete && img.naturalWidth > 0) cropImage(img);
+  }, [src, tall, cropImage]);
 
   const handleError = () => {
     if (!triedProxy) {
@@ -162,50 +167,33 @@ export const LinkCover = ({ imageSource, alt, tall, playOverlay, onFailed, readi
     onFailed();
   };
 
-  if (tall) {
-    return (
-      <div ref={tallFrameRef} className={`relative ${HERO_TALL} overflow-hidden bg-ink ${HERO_EDGE}`}>
-        <img src={src} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-125 object-cover opacity-40 blur-xl" referrerPolicy="no-referrer" />
-        <PictureNotYet loaded={pixel.loaded} />
-        <img
-          ref={imgRef}
-          src={src}
-          alt={alt}
-          className="relative mx-auto h-full object-contain"
-          style={pixel.active ? { opacity: 0 } : undefined}
-          loading="lazy"
-          decoding="async"
-          referrerPolicy="no-referrer"
-          onLoad={pixel.onLoad}
-          onError={handleError}
-        />
-        {pixel.active && <PixelCanvas canvasRef={pixel.canvasRef} />}
-        {playOverlay && <PlayMark size="lg" />}
-      </div>
-    );
-  }
+  const imageStyle = tall ? undefined : crop.style;
 
   return (
-    <div ref={crop.frameRef} className={`relative ${HERO_STANDARD} overflow-hidden bg-fill ${HERO_EDGE}`}>
-      <PictureNotYet loaded={pixel.loaded} />
+    <div ref={crop.frameRef} className={`relative ${tall ? `${HERO_TALL} bg-ink` : `${HERO_STANDARD} bg-fill`} overflow-hidden ${HERO_EDGE}`}>
+      {tall && pixel.loaded && (
+        <img loading="lazy" decoding="async" crossOrigin="anonymous" referrerPolicy="no-referrer" src={src} alt="" aria-hidden
+          className="absolute inset-0 h-full w-full scale-125 object-cover opacity-40 blur-xl" />
+      )}
+      <PictureNotYet loaded={pixel.loaded} reading={reading} arriving={arriving} />
       <img
         ref={imgRef}
-        src={src}
-        alt={alt}
-        className="relative h-full w-full object-cover"
-        style={pixel.active ? { ...crop.style, opacity: 0 } : crop.style}
         loading="lazy"
         decoding="async"
         crossOrigin="anonymous"
         referrerPolicy="no-referrer"
+        src={src}
+        alt={alt}
+        className={tall ? 'relative mx-auto h-full object-contain' : 'relative h-full w-full object-cover'}
+        style={pixel.active ? { ...imageStyle, opacity: 0 } : imageStyle}
         onLoad={(event) => {
-          crop.onLoad(event);
+          if (!tall) crop.onLoad(event);
           pixel.onLoad();
         }}
         onError={handleError}
       />
       {pixel.active && <PixelCanvas canvasRef={pixel.canvasRef} />}
-      {playOverlay && <PlayMark />}
+      {playOverlay && <PlayMark size={tall ? 'lg' : 'md'} />}
     </div>
   );
 };

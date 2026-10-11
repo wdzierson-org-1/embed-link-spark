@@ -10,7 +10,8 @@ import { subscribeStep } from './stepTicker';
  * <img>. A picture that lands while the person watches resolves in from 26 px blocks. Draws on
  * the shared beat, only while on screen; never starts under reduced motion. The frame must be the
  * <img>'s positioned offset parent; the canvas draws the image where object-fit puts it. Call
- * `onLoad` from the <img> that will stay (React fires it for cache hits too).
+ * `onLoad` from the <img> that will stay. Completed cache hits are also recognized on mount.
+ * Key the owning component by image source so a replacement picture gets a fresh plan.
  */
 
 /** Nested squares around the lens centre: half-size as a fraction of the lens, and their block */
@@ -106,7 +107,7 @@ export function usePixelImage({
 }) {
   // Live: switched on mid-effect, the picture shows sharp at once (below); before, it never starts
   const reduced = useReducedMotion();
-  // Until the picture has loaded, the frame shows the mosaic (a picture not yet arrived)
+  // The caller can distinguish a downloading picture from one ready to resolve.
   const [hasLoaded, setHasLoaded] = useState(false);
   // While active the canvas is mounted over the <img>, which hides; inactive, only the <img>
   const [active, setActive] = useState(false);
@@ -142,7 +143,12 @@ export function usePixelImage({
       if (plan.current.hold) letGo();
     }, READING_BOUND_MS);
   }, [clearBound, letGo]);
-  useEffect(() => clearBound, [clearBound]);
+  useEffect(() => {
+    // A cached image can arm the bound in the layout effect. React StrictMode
+    // replays effect cleanup/setup on mount, so restore that timer after cleanup.
+    if (loaded.current && plan.current.hold) armBound();
+    return clearBound;
+  }, [armBound, clearBound]);
 
   const onLoad = useCallback(() => {
     if (loaded.current) return;
@@ -153,6 +159,13 @@ export function usePixelImage({
     if (next) begin(next);
     if (next?.hold) armBound();
   }, [armBound, begin, reduced]);
+
+  // An image may finish from memory/disk cache before React attaches its handler.
+  // Reconcile before paint; complete alone also includes failed images, hence the width check.
+  useLayoutEffect(() => {
+    const img = imgRef.current;
+    if (img?.complete && img.naturalWidth > 0) onLoad();
+  }, [imgRef, onLoad]);
 
   // Stash starting or finishing: back to the lens, or on to sharp
   useEffect(() => {

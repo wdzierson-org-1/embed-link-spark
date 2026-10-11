@@ -463,7 +463,10 @@ Signature effects:
     and flickers a halo of neighbouring cells; a voice note's waveform jitters like a level meter
     listening; a document's lines flicker as if being read off the page. Each settles over three
     beats when Stash is done.
-  - **A picture that hasn't downloaded** shows the mosaic (§7) until it has.
+  - **An ordinary preview that hasn't downloaded** keeps the quiet media field until it is
+    ready; cached pictures show immediately. The mosaic (§7) is reserved for a save actively
+    being read or a new picture arriving, so reopening the library does not look like every
+    saved item is being processed again (Will, 2026-10-10).
   - Everything steps on **one shared 110 ms beat** (`stepTicker`), like the spinner, so a page of
     reading cards costs one timer; canvases off screen don't paint.
 - **Print-in** (`.v2-print-in`): `clip-path` revealing top to bottom in 4 steps over 240 ms, for

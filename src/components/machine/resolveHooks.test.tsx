@@ -47,7 +47,7 @@ const Picture = ({ reading, arriving }: { reading: boolean; arriving: boolean })
   const imgRef = useRef<HTMLImageElement>(null);
   const pixel = usePixelImage({ frameRef, imgRef, reading, arriving });
   return (
-    <div ref={frameRef} style={{ position: 'relative' }}>
+    <div ref={frameRef} data-loaded={pixel.loaded} style={{ position: 'relative' }}>
       <img ref={imgRef} alt="cover" style={pixel.active ? { opacity: 0 } : undefined} onLoad={pixel.onLoad} />
       {pixel.active && <canvas ref={pixel.canvasRef} data-testid="resolve" />}
     </div>
@@ -60,6 +60,30 @@ const beats = (count: number) =>
   });
 
 describe('usePixelImage', () => {
+  it('recognizes an image already completed before its load handler attached', () => {
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(640);
+    const { container } = render(<Picture reading={false} arriving={false} />);
+    expect(container.firstChild).toHaveAttribute('data-loaded', 'true');
+    expect(screen.queryByTestId('resolve')).not.toBeInTheDocument();
+  });
+
+  it('does not treat a completed but broken image as loaded', () => {
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(0);
+    const { container } = render(<Picture reading={false} arriving={false} />);
+    expect(container.firstChild).toHaveAttribute('data-loaded', 'false');
+  });
+
+  it('keeps the reading bound for a cached image when StrictMode replays mount effects', () => {
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(640);
+    render(<React.StrictMode><Picture reading arriving={false} /></React.StrictMode>);
+    expect(screen.getByTestId('resolve')).toBeInTheDocument();
+    beats(32);
+    expect(screen.queryByTestId('resolve')).not.toBeInTheDocument();
+  });
+
   it('resolves an arriving picture and hands back the real <img>', () => {
     render(<Picture reading={false} arriving />);
     fireEvent.load(screen.getByAltText('cover'));

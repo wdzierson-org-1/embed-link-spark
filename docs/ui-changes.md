@@ -8,6 +8,31 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-10 · Compact WebKit cards and quieter preview loading
+
+- **Contract (all platforms):** no API, schema, item-data or capture changes. Already-saved
+  previews should show as soon as their image is ready; ordinary network loading does not
+  represent enrichment work. Existing image URLs and HTTP caching rules stay in use.
+- **Web / Mac wrapper:** the card-title button uses block layout. WebKit otherwise reserves
+  the full hidden caption's line-box height beneath a two-line title, producing oversized
+  cards. The title still clamps to two lines and the card still sizes to its content.
+- **Preview loading:** ordinary downloads use the quiet media field. Pixel effects remain
+  for a newly arriving or actively enriching save. Cached image readiness is checked on
+  mount, and portrait presentation reuses the foreground image instead of starting another
+  request with different CORS settings. Decorative portrait backgrounds wait for the main
+  picture; they do not compete with it while it is downloading.
+- **Native parity:** the Mac disk-cache change requires a new native build, delivered
+  separately. Browser HTTP caching honors response cache headers; an uncached preview still
+  needs its first network download.
+- **Verification:** 57 focused card/resolve/crop/layout tests, the 26-test enrichment release
+  gate, TypeScript and production build pass. Real WebKit/Chromium card-title checks pass at
+  three widths. In a controlled WebKit fixture with a five-second image response, ordinary
+  mosaic time fell from about five seconds to zero, portrait DOM replacement and off-screen
+  requests disappeared, and the cached reload showed the image in 7 ms. These are synthetic
+  fixture timings, not a measurement of the user's library or every remote image provider.
+
+---
+
 ## 2026-10-10 · Input panel fixes: line-aware slash commands, pictures in notes are read, documents show their first page, one minimize, three-line titles, left-aligned citations
 
 Will, 2026-10-10: six fixes to the input panel and the detail panel. Contracts first.

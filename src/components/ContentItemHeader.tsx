@@ -263,13 +263,14 @@ const ContentItemHeader = ({
       {/* Title: the AI's (or the person's) reading of the object, never a filename */}
       {title ? (
         <div className={`px-5 ${hero ? 'pt-4' : (item.is_public || isDue || isPinned) && !isPublicView ? 'pt-3' : 'pt-[18px]'}`}>
+          {/* Block layout keeps WebKit from reserving the unclamped title's height in the line box. */}
           <button
             type="button"
             onClick={handleTitleClick}
             disabled={isPublicView ? !(item.type === 'link' && item.url) : isProcessing}
             aria-disabled={!isPublicView && isProcessing}
             aria-label={decrypted.scrambling ? title : undefined}
-            className={`group/title w-full text-left ${
+            className={`group/title block w-full text-left ${
               isPublicView && !(item.type === 'link' && item.url) ? 'cursor-default' : isProcessing ? 'cursor-progress' : 'cursor-pointer'
             }`}
           >

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { analyzeImageElement, coverObjectPosition } from '@/utils/heroFocal';
 
 /**
@@ -11,8 +11,7 @@ export const useSubjectCrop = () => {
   const frameRef = useRef<HTMLDivElement>(null);
   const [objectPosition, setObjectPosition] = useState<string | undefined>(undefined);
 
-  const onLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = event.currentTarget;
+  const onImageLoad = useCallback((img: HTMLImageElement) => {
     const analysis = analyzeImageElement(img);
     if (!analysis || !analysis.bounds) return;
     const frame = frameRef.current;
@@ -20,7 +19,9 @@ export const useSubjectCrop = () => {
     const frameH = frame?.clientHeight || img.clientHeight;
     const pos = coverObjectPosition(analysis.focal, img.naturalWidth, img.naturalHeight, frameW, frameH);
     setObjectPosition(`${pos.x.toFixed(1)}% ${pos.y.toFixed(1)}%`);
-  };
+  }, []);
 
-  return { frameRef, onLoad, style: objectPosition ? { objectPosition } : undefined };
+  const onLoad = (event: React.SyntheticEvent<HTMLImageElement>) => onImageLoad(event.currentTarget);
+
+  return { frameRef, onLoad, onImageLoad, style: objectPosition ? { objectPosition } : undefined };
 };

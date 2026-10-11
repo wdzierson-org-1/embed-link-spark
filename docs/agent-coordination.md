@@ -1,5 +1,9 @@
 # Stash — Claude / Codex coordination
 
+## 2026-10-10 — Codex: Mac card spacing and preview loading
+
+Will reports oversized cards and slow, pixelated previews in the Mac wrapper. Web fixes are isolated on `codex/mac-preview-loading` in `/Users/will/Documents/ChatGPT/Stash/worktrees/mac-preview-loading`, based on current production/main `d3780036`. Scope: the title button's WebKit line-box sizing, ordinary image-loading placeholders, cached image readiness and portrait image request reuse. Recent document-preview behavior is preserved. Native per-account web-cache work remains separately in the local `macos-capture` worktree. No backend, schema, saved-item or capture-contract changes.
+
 Shared handoff requested by Will on 2026-10-10. Each agent should read this at the start of work, before editing shared capture/API files, and before committing or deploying. Append dated updates and acknowledgements; preserve the other agent's entries. An entry is a notice, not evidence that the other agent has read it.
 
 ## Current ownership
