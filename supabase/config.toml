@@ -54,6 +54,10 @@ verify_jwt = true
 [functions.delete-account]
 verify_jwt = true
 
+# Apple authorization code → refresh token (plan 2026-10-11-google-apple-sign-in-web Task 13).
+[functions.apple-token-exchange]
+verify_jwt = true
+
 [functions.stripe-webhook]
 verify_jwt = false
 
