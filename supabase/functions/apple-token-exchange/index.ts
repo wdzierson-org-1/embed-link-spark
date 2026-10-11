@@ -36,13 +36,12 @@ Deno.serve(async (req) => {
   const { data: userData, error: userError } = await admin.auth.getUser(token);
   const user = userData?.user;
   if (userError || !user) return json(401, { error: "Invalid or expired token" });
+  // A try-stash guest has no Apple grant of its own to keep: a successful Apple sign-in replaces
+  // that session before any client calls this.
+  if ((user as { is_anonymous?: boolean }).is_anonymous) return json(403, { error: "anonymous" });
 
-  let body: { code?: unknown; client?: unknown };
-  try {
-    body = await req.json();
-  } catch {
-    return json(400, { error: "JSON body required" });
-  }
+  // Unparseable JSON and a JSON null both arrive as {}, so they meet the same 400 below
+  const body = ((await req.json().catch(() => null)) ?? {}) as { code?: unknown; client?: unknown };
   const code = typeof body.code === "string" ? body.code.trim() : "";
   const client = body.client === "web" || body.client === "ios" ? body.client : null;
   if (!code || !client) return json(400, { error: "code and client ('web' | 'ios') are required" });
@@ -72,7 +71,10 @@ Deno.serve(async (req) => {
     const { error } = await admin
       .from("apple_sign_in_tokens")
       .upsert({ user_id: user.id, client_id: clientId, refresh_token: data.refresh_token }, { onConflict: "user_id,client_id" });
-    if (error) return json(500, { stored: false, error: error.message });
+    if (error) {
+      console.warn("[APPLE-TOKEN-EXCHANGE] store failed", error.message); // the message only: the row holds the refresh token
+      return json(500, { stored: false, error: error.message });
+    }
     return json(200, { stored: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

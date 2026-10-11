@@ -4,7 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockIn
 
 const state = vi.hoisted(() => ({
   handler: null as null | ((req: Request) => Promise<Response>),
-  user: { id: 'user-1', email: 'will@example.com' } as null | { id: string; email: string },
+  user: { id: 'user-1', email: 'will@example.com' } as null | { id: string; email: string; is_anonymous?: boolean },
   getUserTokens: [] as unknown[],
   upserted: null as null | { row: Record<string, unknown>; opts: Record<string, unknown> },
   upsertError: null as null | { message: string },
@@ -94,10 +94,28 @@ describe('apple-token-exchange', () => {
     expect(state.fetchCount).toBe(0);
   });
 
+  it('refuses an anonymous (try-stash) session before Apple or the database', async () => {
+    state.user = { id: 'anon-1', email: '', is_anonymous: true };
+    const res = await call({ code: 'c0de', client: 'web' });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'anonymous' });
+    expect(state.fetchCount).toBe(0);
+    expect(state.upserted).toBeNull();
+  });
+
   it('rejects a bad body', async () => {
     expect((await call('not json')).status).toBe(400);
     expect((await call({ code: '', client: 'web' })).status).toBe(400);
     expect((await call({ code: 'c', client: 'android' })).status).toBe(400);
+  });
+
+  it('answers a JSON null body, like unparseable JSON, with the 400 and its message', async () => {
+    for (const body of ['null', 'not json']) {
+      const res = await call(body);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "code and client ('web' | 'ios') are required" });
+    }
+    expect(state.fetchCount).toBe(0);
   });
 
   it('exchanges a web code against the Services ID with the return URL and stores the refresh token', async () => {
@@ -142,11 +160,16 @@ describe('apple-token-exchange', () => {
     expect(logged()).not.toContain('LEAK');
   });
 
-  it('reports an upsert failure as 500', async () => {
+  it('reports an upsert failure as 500 and logs only its message', async () => {
+    state.apple = { status: 200, body: { refresh_token: 'LEAK-refresh' } };
     state.upsertError = { message: 'boom' };
     const res = await call({ code: 'c0de', client: 'web' });
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ stored: false, error: 'boom' });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('[APPLE-TOKEN-EXCHANGE] store failed', 'boom');
+    expect(logged()).not.toContain('LEAK'); // not the refresh token
+    expect(logged()).not.toContain('c0de'); // nor the authorization code
   });
 
   it('answers 500 with JSON when the Apple secrets are missing', async () => {
