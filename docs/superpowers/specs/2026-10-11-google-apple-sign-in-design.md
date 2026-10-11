@@ -431,6 +431,15 @@ redirect. `/extension/connect`: not-installed, failed (`lastError`), connected. 
   verification needed). A **Web application** client with authorized JavaScript origins
   `https://www.gostash.it`, `https://gostash.it`, `http://localhost:8080`, `http://localhost`,
   and the branch-preview origin; an **iOS** client for `it.gostash.stash`. Deliver: both client ids.
+  **Done 2026-10-11** (Claude, in Will's console): project **`gostash-stash`** ("Stash", org
+  `gostash.it`); consent screen *Stash* — External, **In production**, no logo, scopes
+  `openid` / `userinfo.email` / `userinfo.profile`, authorized domain `gostash.it`, home/privacy/
+  terms links set, support + contact `will@gostash.it`. Web client
+  `772942709290-2j03nu08hnumh6jfe2h0j6jkh9bnrbta.apps.googleusercontent.com` (origins
+  `https://www.gostash.it`, `https://gostash.it`, `http://localhost:8080`, `http://localhost`;
+  the branch-preview origin is added when a preview is first needed). iOS client
+  `772942709290-ha25d35f942l5blept0aiv30aculahsn.apps.googleusercontent.com`
+  (`it.gostash.stash`). The web client secret was not recorded anywhere; nothing uses it.
 - *Apple Developer (3CH3K9NTT2):* enable Sign in with Apple on App ID `it.gostash.stash`; create a
   **Services ID** (e.g. `it.gostash.web`) with Sign in with Apple configured — primary App ID
   `it.gostash.stash`, domains `www.gostash.it` + the branch-preview host, return URLs
