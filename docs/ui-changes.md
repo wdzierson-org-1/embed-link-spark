@@ -8,6 +8,79 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-11 · Google and Apple sign-in; generated handles confirmed once
+
+Will: "let's get google and apple sign up implemented." Spec:
+`docs/superpowers/specs/2026-10-11-google-apple-sign-in-design.md`.
+
+- **Contract (all platforms): id-token sign-in.** The client obtains an identity token from
+  Google or Apple and calls `auth.signInWithIdToken({ provider, token, nonce })`. Nonce rule: the
+  provider gets the SHA-256 hex of a random nonce, Supabase gets the raw value, one nonce per
+  attempt. Supabase holds Client IDs only (Google web
+  `772942709290-2j03nu08hnumh6jfe2h0j6jkh9bnrbta…`, iOS
+  `772942709290-ha25d35f942l5blept0aiv30aculahsn…`; Apple `it.gostash.web` for the web,
+  `it.gostash.stash` native) — Supabase auth holds no provider client secret (the Apple key lives
+  only in edge-function secrets, spec §5.4). Same verified email → the same account (automatic
+  linking). Apple's Hide My Email makes a separate account; the footnote says so.
+- **Contract: `user_profiles.handle_confirmed`.** A sign-up whose metadata `username` matches
+  `^[a-z0-9]{3,20}$` keeps it and is confirmed (the email forms on web and iOS send one).
+  Anything else — no `username`, or one that fails that format (it is ignored, never locked in) —
+  gets a server-generated handle and `handle_confirmed = false`: `full_name` / `name`, then the
+  email local part unless the address is `@privaterelay.appleid.com`, then `stash`; `[a-z0-9]`,
+  3–20, numeric suffix on collision. Anonymous (try-stash) sessions get `guest-<8 chars of id>`;
+  the guest handles that already existed were backfilled to `false`, so a converted guest meets
+  the step too. Every other existing account is `true`. A DB trigger refuses any username change
+  once confirmed, any reset of the flag, and any change or confirmation to a handle that fails
+  the format — a guest-shaped handle can never be confirmed as it is.
+- **Contract: the handle step.** The first surface that reads `handle_confirmed = false` on a
+  real (non-anonymous) account shows it, and keeps showing it until the person continues. The
+  field starts with the first of: a name the provider gave us (Apple's first-authorization name;
+  Google's `full_name` / `name`; lower-cased, stripped to `[a-z0-9]`, cut to 20, used when 3 or
+  more characters remain) → the server's handle, when it matches the format (never a `guest-…`
+  one) → the email local part, sanitized the same way, unless the address is
+  `@privaterelay.appleid.com` → empty. Same validation and live availability check as the
+  sign-up username field (`user_profiles` is publicly readable; the person's own row never counts
+  as taken). **Continue** is disabled under 3 characters; it writes, in one `user_profiles`
+  update, `username` + `handle_confirmed = true` and — when the current `display_name` is the
+  server fallback (null/empty, equal to the old handle, or equal to the email local part) — also
+  `display_name = <the new handle>`; a name the person has is never overwritten, and a failed
+  read of it never blocks the claim. `23505` → `✕ that username is taken. try another.`; any
+  other error → a toast (**That didn't take.** + the message) and the step stays. Then re-read
+  the profile and go on into the app. There is no skip: the prefill plus Continue is the skip. A
+  profile that cannot be read never blocks the way in (the web retries once after 500 ms, since
+  a read right after a sign-up can miss the new row, then lets the person through; the step
+  shows next time). iOS: read `handle_confirmed` with the profile and show the same step before
+  the tabs.
+- **Contract: Apple extras.** Apple sends the name only on first authorization → the client writes
+  `full_name`/`given_name`/`family_name` to the user metadata and `display_name`/`first_name`/
+  `last_name` to the profile when the profile still shows the server fallback (the same rule as
+  the claim's `display_name`); the web also hands the name straight to the step's prefill, since
+  the metadata write can land after the step opens. Apple's one-shot authorization code →
+  `POST /functions/v1/apple-token-exchange { code, client: 'web' | 'ios' }` right after sign-in
+  (five-minute, single-use code; failure never blocks). `delete-account` now revokes every stored
+  Apple refresh token before deleting and answers `apple: { revoked, failed }`.
+- **Web (`/auth`):** a Google-rendered button (Google Identity Services) and an Apple-rendered
+  one (Apple JS popup) above both forms, both square, 40 px, "Continue with …", then
+  `one account per email. sign in the same way each time.` and the rule `or with your email`.
+  GIS logs a console warning when `initialize` runs more than once; the page calls it once per
+  attempt (every attempt gets a fresh nonce) and again whenever the button re-renders (a resize,
+  a tab switch) — expected, not a bug. New view `stash://handle` —
+  **Claim your address.** / `> one more thing. pick your handle.` / **Continue** (`claiming…`).
+  Gate: a signed-in person stays on `/auth` (`| opening…`) until the handle is known, then sees
+  the step (unconfirmed) or goes on to `returnTo` / `/home` (confirmed); `/home` sends a handle
+  it knows is unconfirmed to `/auth?mode=handle` (an unknown handle never redirects). A failed
+  password sign-in adds `Signed up with Google or Apple? Use that button.` Provider errors toast
+  **Sign-in didn't complete.**; both Apple cancel codes, `popup_closed_by_user` and
+  `user_cancelled_authorize`, are silent.
+- **Implementation:** `src/components/auth/{ProviderButtons,HandleStep,AuthControls}.tsx`,
+  `src/components/auth/{useProviderScripts,usernameAvailability,appleName}.ts`,
+  `src/utils/nonce.ts`, `src/integrations/auth/providers.ts` (the public ids),
+  `src/pages/{Auth,Index}.tsx` (the gates), `useAuth.handle`, migration
+  `20261011150000_oauth_handles.sql`, `supabase/functions/{apple-token-exchange,delete-account}`,
+  `_shared/appleClientSecret.ts`.
+
+---
+
 ## 2026-10-10 · Compact WebKit cards and quieter preview loading
 
 - **Contract (all platforms):** no API, schema, item-data or capture changes. Already-saved

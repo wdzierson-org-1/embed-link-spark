@@ -19,6 +19,16 @@ Get a JWT with supabase-js (`auth.signInWithPassword` / OAuth) on any platform,
 or the raw REST endpoint `POST /auth/v1/token?grant_type=password`. The item
 owner is always derived from the JWT server-side — never sent by the client.
 
+**Google and Apple** use the id-token flow on every platform: get an identity token from the
+provider's own SDK (Google Identity Services / GoogleSignIn; Apple JS / AuthenticationServices)
+with the SHA-256 of a fresh nonce, then `auth.signInWithIdToken({ provider, token, nonce })` with
+the raw nonce. Nothing else is needed — no redirect, no client secret. The accepted audiences are
+the project's Client IDs (spec `2026-10-11-google-apple-sign-in-design.md` §5.1). Right after an
+Apple sign-in, send Apple's authorization code to `POST /apple-token-exchange` (below) so account
+deletion can revoke the grant; on first authorization also write the person's name
+(`updateUser({ data: { full_name, given_name, family_name } })`). Read
+`user_profiles.handle_confirmed`: when false, show the one-time handle step before the app.
+
 ## Typed publisher facts (beta)
 
 Newly enriched product and place links may include `attributes.object_facts`.
@@ -572,19 +582,45 @@ and the call can simply be retried:
    is canceled (customer record kept for invoice history, tagged
    `stash_account_deleted_at`).
 2. Storage — every object under `stash-media/<user_id>/` is removed.
-3. `auth.admin.deleteUser` — DB cascades take items, embeddings, tags,
+3. Sign in with Apple — every refresh token `apple-token-exchange` stored for the
+   user is revoked at Apple (best effort, never blocks: a refusal, a stalled
+   Apple — each call gives up after 8 s — or missing secrets is logged, counted
+   in `apple.failed`, and deletion goes on).
+4. `auth.admin.deleteUser` — DB cascades take items, embeddings, tags,
    conversations, messages, phone number, profile, agent grants, feedback,
-   logs and all `auth.*` rows (migration `20260907120000`).
+   logs, the stored Apple tokens and all `auth.*` rows (migrations
+   `20260907120000`, `20261011150000`).
 
 ```
-200 { "deleted": true, "storageObjects": 42, "stripe": { "customers": 1, "canceled": 1 } }
+200 { "deleted": true, "storageObjects": 42, "stripe": { "customers": 1, "canceled": 1 },
+      "apple": { "revoked": 1, "failed": 0 } }
 401 { "error": "Invalid or expired token" }
 403 { "error": "Agent tokens cannot delete an account" }
 500 { "deleted": false, "error": "<step>: <reason>" }   ← nothing irreversible happened
 ```
 
+`apple.revoked` counts the stored tokens whose revoke Apple answered with 2xx. That
+is not proof a grant ended: Apple answers `200` even for a token it does not
+know, so a retry after a later failure still counts. `apple.failed` counts the
+rest (Apple refused, timed out, or the revoke could not be attempted). Both are
+`0` for anyone who never used Sign in with Apple. Informational: what a client
+does on `200` is unchanged.
+
 After `200` the JWT is dead server-side: clients drop the local session
 (`signOut({ scope: 'local' })` / clear the keychain) and return to sign-in.
+
+### `POST /apple-token-exchange` — keep Apple's refresh token for revocation
+
+Standard auth headers (agent tokens refused). Body `{ "code": "<Apple authorization code>",
+"client": "web" | "ios" }` — `web` = the Services ID audience with return URL
+`https://www.gostash.it/auth`, `ios` = the bundle id. `200 { stored: true }`; `400` bad body;
+`502 { stored: false, error }` when Apple refuses (expired or reused code: `invalid_grant`);
+`500 { stored: false, error }` on any server-side failure (missing secrets, unreachable Apple,
+storage error). Call it immediately after `signInWithIdToken` — Apple's code lives five minutes
+and works once — and never block the sign-in on it. One token is kept per person per audience (a
+later call replaces it). `delete-account` revokes every stored token first and reports
+`apple: { revoked, failed }`. The function never logs Apple's response body (on a 2xx it can
+carry live tokens); only Apple's status and error code reach its log.
 
 ## Delete contract
 

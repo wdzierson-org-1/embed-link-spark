@@ -190,21 +190,21 @@ extension and its keychain session.
 | Field | Value |
 |---|---|
 | `external_google_enabled` | `true` |
-| `external_google_client_id` | the **web** OAuth client id (the id-token audience on web, and on iOS via `serverClientID`) |
-| `external_google_additional_client_ids` | the **iOS** OAuth client id |
+| `external_google_client_id` | `<web>,<ios>` — a comma list: the **web** OAuth client id (the id-token audience on web, and on iOS via `serverClientID`), then the **iOS** OAuth client id |
 | `external_google_secret` | **unset** (redirect flow only) |
 | `external_google_skip_nonce_check` | `false` (see §4.1 fallback) |
 | `external_apple_enabled` | `true` |
-| `external_apple_client_id` | the **Services ID** (web audience) |
-| `external_apple_additional_client_ids` | `it.gostash.stash` (native audience) |
+| `external_apple_client_id` | `it.gostash.web,it.gostash.stash` — a comma list: the **Services ID** (web audience), then the bundle id (native audience) |
 | `external_apple_secret` | **unset** |
 | `uri_allow_list` | unchanged (no redirects are added) |
 | `security_manual_linking_enabled` | unchanged (`false`) |
 
-Read the config back after the PATCH and keep the result in the plan's verification notes. Mirror
-the two providers in `supabase/config.toml` (`[auth.external.google]`, `[auth.external.apple]`,
-`enabled = true`, `client_id`, `skip_nonce_check = false`, empty `secret`) so local parity is
-documented even though the local stack is not used here.
+The hosted config keeps each provider's audiences as one comma list in `*_client_id` (read back
+2026-10-11: the list exactly as sent, both secrets unset). Read the config back after the PATCH
+and keep the result in the plan's verification notes. Mirror the two providers in
+`supabase/config.toml` (`[auth.external.google]`, `[auth.external.apple]`, `enabled = true`,
+`client_id`, `skip_nonce_check = false`, empty `secret`) so local parity is documented even
+though the local stack is not used here.
 
 ### 5.2 Migration `20261011120000_oauth_handles.sql`
 
@@ -279,7 +279,8 @@ importing the key), `APPLE_SERVICES_ID`, `APPLE_BUNDLE_ID` (`it.gostash.stash`).
   `authorization.id_token`, `authorization.code`, and on first authorization `user.name` /
   `user.email`. Then `signInWithIdToken({ provider: 'apple', token: id_token, nonce: raw })`,
   the name write (§4.4), and `apple-token-exchange({ code, client: 'web' })`.
-  `AppleIDSignInOnFailure` with `popup_closed_by_user` is silent; anything else toasts.
+  `AppleIDSignInOnFailure` with `popup_closed_by_user` (window closed) or `user_cancelled_authorize`
+  (Cancel pressed) is silent; anything else toasts.
 - After either succeeds, `useAuth` sees the session (`onAuthStateChange`) and the existing
   `Auth.tsx` effect routes onward — **after the handle gate** (§6.3). `returnTo` and
   `commentItem` keep working untouched because the page never navigated away.
@@ -324,11 +325,11 @@ step, and the §10 (Voice and copy) table row; `docs/ui-changes.md` gets the con
 
 `Auth`: the pair renders on both tabs; scripts injected once; the Google callback and the Apple
 success event call `signInWithIdToken` with the raw nonce whose hash was handed to the
-provider; Apple's `user.name` triggers the name write and the code exchange; popup-closed is
-silent, other failures toast; the handle view prefills, validates, writes, routes, and maps
-`23505` to the field error; the gate waits, shows, or routes. `Index`: the unconfirmed-handle
-redirect. `/extension/connect`: not-installed, failed (`lastError`), connected. `nonce.ts`,
-`extensionBridge.ts`.
+provider; Apple's `user.name` triggers the name write and the code exchange; both Apple cancel
+codes (`popup_closed_by_user`, `user_cancelled_authorize`) are silent, other failures toast; the
+handle view prefills, validates, writes, routes, and maps `23505` to the field error; the gate
+waits, shows, or routes. `Index`: the unconfirmed-handle redirect. `/extension/connect`:
+not-installed, failed (`lastError`), connected. `nonce.ts`, `extensionBridge.ts`.
 
 ## 7. Extension (phase 2)
 
