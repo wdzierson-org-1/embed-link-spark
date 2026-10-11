@@ -10,11 +10,13 @@ vi.mock("react-router-dom", () => ({
   useNavigate: () => navigateMock,
 }));
 
+const authState = vi.hoisted(() => ({ handle: undefined as undefined | { username: string; confirmed: boolean } }));
 vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({
     user: { id: "user-1", email: "test@example.com" },
     loading: false,
     session: { access_token: "token" },
+    handle: authState.handle,
   }),
 }));
 
@@ -119,5 +121,20 @@ describe("Index", () => {
     render(<Index />);
     await waitFor(() => expect(sweepMock).toHaveBeenCalledWith("user-1"));
     expect(sweepMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends a person with an unconfirmed handle back to the way in", async () => {
+    authState.handle = { username: "guest-12345678", confirmed: false };
+    render(<Index />);
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/auth?mode=handle"));
+    authState.handle = undefined;
+  });
+
+  it("leaves a confirmed person alone", async () => {
+    authState.handle = { username: "will", confirmed: true };
+    render(<Index />);
+    await waitFor(() => expect(fetchItemsMock).not.toHaveBeenCalled());
+    expect(navigateMock).not.toHaveBeenCalledWith("/auth?mode=handle");
+    authState.handle = undefined;
   });
 });

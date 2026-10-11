@@ -24,7 +24,7 @@ import { enrichmentState, isReadingDocument } from '@/utils/itemAssembly';
 const MOLE_PINNED_KEY = 'stash_mole_pinned';
 
 const Index = () => {
-  const { user, loading } = useAuth();
+  const { user, loading, handle } = useAuth();
   const navigate = useNavigate();
   const {
     items,
@@ -112,7 +112,12 @@ const Index = () => {
     if (!loading && user && (user as { is_anonymous?: boolean }).is_anonymous) {
       navigate('/');
     }
-  }, [loading, user, navigate]);
+    // A handle the server generated (Google/Apple sign-up, a converted guest) is claimed once on
+    // the way in before the library opens (spec §6.3)
+    if (!loading && user && handle && handle.confirmed === false) {
+      navigate('/auth?mode=handle');
+    }
+  }, [loading, user, handle, navigate]);
 
   const handleMolePinnedChange = (pinned: boolean) => {
     setMolePinned(pinned);
