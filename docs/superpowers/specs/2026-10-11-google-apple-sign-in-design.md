@@ -126,6 +126,9 @@ wrapper; Apple server-to-server notifications.
 
 ### 4.3 The handle
 
+*Superseded in detail by `docs/ui-changes.md` 2026-10-11 — where the two differ, that entry is
+what shipped.*
+
 - New column `user_profiles.handle_confirmed boolean not null default true` (existing rows chose
   theirs).
 - **`handle_new_user` v3.** When `raw_user_meta_data.username` is present (the email sign-up forms
@@ -139,11 +142,16 @@ wrapper; Apple server-to-server notifications.
   - collision-safe: the insert retries on `unique_violation` with the next candidate, so two
     sign-ups racing for the same base both succeed.
 - **The confirm step** (web §6.3, iOS §8): shown when the signed-in person's profile has
-  `handle_confirmed = false`. Prefilled with the first available of a name-derived suggestion
-  (when the client learned a name — Google always, Apple on first authorization) and the server's
-  handle. **Continue** writes `username` (if changed) and `handle_confirmed = true` through the
-  owner `UPDATE` policy. Validation and copy are the sign-up form's. There is no skip: the
-  prefilled handle plus Continue *is* the skip.
+  `handle_confirmed = false`. Prefilled with the first available of: a name-derived suggestion
+  (when the client learned a name — Google always, Apple on first authorization; lower-cased,
+  stripped to `[a-z0-9]`, cut to 20, used when 3 or more characters remain); the server's handle,
+  when it is 3–20 letters and numbers (a `guest-…` handle is never offered); the email local part,
+  sanitized the same way (never a `privaterelay.appleid.com` one); else empty. **Continue**
+  (disabled under 3 characters) writes `username` (if changed) and `handle_confirmed = true`
+  through the owner `UPDATE` policy and — when the current `display_name` is still the server
+  fallback (null/empty, equal to the old handle, or equal to the email local part, §4.4) — also
+  `display_name = <the new handle>`, all in the one update. Validation and copy are the sign-up
+  form's. There is no skip: the prefilled handle plus Continue *is* the skip.
 - **Immutability becomes server-side:** a `BEFORE UPDATE` trigger on `user_profiles` refuses a
   `username` change once `handle_confirmed` is true, and refuses setting `handle_confirmed` back
   to false. The confirm step is the only way a handle ever changes.
@@ -288,6 +296,10 @@ importing the key), `APPLE_SERVICES_ID`, `APPLE_BUNDLE_ID` (`it.gostash.stash`).
   host registered on the Services ID; Google works on localhost.
 
 ### 6.3 The handle step and its gates
+
+*Superseded in detail by `docs/ui-changes.md` 2026-10-11 — what shipped is
+`useAuth.handle = { username, confirmed }` + `refreshHandle` (not `handleConfirmed: boolean | null`),
+and the claim also sets `display_name` (§4.3).*
 
 - `Auth.tsx` grows a third view, `handle` (copy §4.6): the sign-up username field (`@` + mono,
   live availability, same validation), the feed-address helper, one ink **Continue**. Prefill

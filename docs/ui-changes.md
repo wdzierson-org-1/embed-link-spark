@@ -17,11 +17,14 @@ Will: "let's get google and apple sign up implemented." Spec:
   Google or Apple and calls `auth.signInWithIdToken({ provider, token, nonce })`. Nonce rule: the
   provider gets the SHA-256 hex of a random nonce, Supabase gets the raw value, one nonce per
   attempt. Supabase holds Client IDs only (Google web
-  `772942709290-2j03nu08hnumh6jfe2h0j6jkh9bnrbta…`, iOS
-  `772942709290-ha25d35f942l5blept0aiv30aculahsn…`; Apple `it.gostash.web` for the web,
-  `it.gostash.stash` native) — Supabase auth holds no provider client secret (the Apple key lives
-  only in edge-function secrets, spec §5.4). Same verified email → the same account (automatic
-  linking). Apple's Hide My Email makes a separate account; the footnote says so.
+  `772942709290-2j03nu08hnumh6jfe2h0j6jkh9bnrbta.apps.googleusercontent.com`, iOS
+  `772942709290-ha25d35f942l5blept0aiv30aculahsn.apps.googleusercontent.com`; Apple
+  `it.gostash.web` for the web, `it.gostash.stash` native) — Supabase auth holds no provider
+  client secret (the Apple key lives only in edge-function secrets, spec §5.4). iOS uses the
+  GoogleSignIn SDK with `serverClientID` = the web client id, so its token's audience is the web
+  client. Same verified email → the same account (automatic linking). Apple's Hide My Email makes
+  a separate account; the footnote says so. Cancelling a provider sheet is silent on every
+  platform (web: Apple JS `popup_closed_by_user` / `user_cancelled_authorize`).
 - **Contract: `user_profiles.handle_confirmed`.** A sign-up whose metadata `username` matches
   `^[a-z0-9]{3,20}$` keeps it and is confirmed (the email forms on web and iOS send one).
   Anything else — no `username`, or one that fails that format (it is ignored, never locked in) —
@@ -31,7 +34,9 @@ Will: "let's get google and apple sign up implemented." Spec:
   the guest handles that already existed were backfilled to `false`, so a converted guest meets
   the step too. Every other existing account is `true`. A DB trigger refuses any username change
   once confirmed, any reset of the flag, and any change or confirmation to a handle that fails
-  the format — a guest-shaped handle can never be confirmed as it is.
+  the format — a guest-shaped handle can never be confirmed as it is. iOS: cap the sign-up
+  username at 20 characters (`prefix(20)`) — a longer one now fails the format gate and yields a
+  generated, unconfirmed handle.
 - **Contract: the handle step.** The first surface that reads `handle_confirmed = false` on a
   real (non-anonymous) account shows it, and keeps showing it until the person continues. The
   field starts with the first of: a name the provider gave us (Apple's first-authorization name;

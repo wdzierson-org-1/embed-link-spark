@@ -21,13 +21,16 @@ owner is always derived from the JWT server-side — never sent by the client.
 
 **Google and Apple** use the id-token flow on every platform: get an identity token from the
 provider's own SDK (Google Identity Services / GoogleSignIn; Apple JS / AuthenticationServices)
-with the SHA-256 of a fresh nonce, then `auth.signInWithIdToken({ provider, token, nonce })` with
-the raw nonce. Nothing else is needed — no redirect, no client secret. The accepted audiences are
-the project's Client IDs (spec `2026-10-11-google-apple-sign-in-design.md` §5.1). Right after an
-Apple sign-in, send Apple's authorization code to `POST /apple-token-exchange` (below) so account
-deletion can revoke the grant; on first authorization also write the person's name
-(`updateUser({ data: { full_name, given_name, family_name } })`). Read
-`user_profiles.handle_confirmed`: when false, show the one-time handle step before the app.
+with the SHA-256 hex of a fresh nonce, then `auth.signInWithIdToken({ provider, token, nonce })`
+with the raw nonce. Nothing else is needed — no redirect, no client secret. The accepted audiences
+are the project's Client IDs (spec `2026-10-11-google-apple-sign-in-design.md` §5.1). Right after
+an Apple sign-in, send Apple's authorization code to `POST /apple-token-exchange` (below) so
+account deletion can revoke the grant; on first authorization also write the person's name into
+the user metadata (`updateUser({ data: { full_name, given_name, family_name } })`). On first Apple
+authorization also write the name onto the profile (`display_name`, `first_name`, `last_name`)
+when the profile still shows the server fallback — the full contract is in `docs/ui-changes.md`
+2026-10-11. Read `user_profiles.handle_confirmed`: when false, show the one-time handle step before
+the app.
 
 ## Typed publisher facts (beta)
 
@@ -601,10 +604,11 @@ and the call can simply be retried:
 
 `apple.revoked` counts the stored tokens whose revoke Apple answered with 2xx. That
 is not proof a grant ended: Apple answers `200` even for a token it does not
-know, so a retry after a later failure still counts. `apple.failed` counts the
-rest (Apple refused, timed out, or the revoke could not be attempted). Both are
-`0` for anyone who never used Sign in with Apple. Informational: what a client
-does on `200` is unchanged.
+know, so a retry after a later failure still counts. `apple.failed` counts revokes
+Apple refused, that timed out, or that could not be attempted (secrets missing); a
+failed read of the token table reports `{ revoked: 0, failed: 0 }` and is logged
+server-side. Both are `0` for anyone who never used Sign in with Apple. Informational:
+what a client does on `200` is unchanged.
 
 After `200` the JWT is dead server-side: clients drop the local session
 (`signOut({ scope: 'local' })` / clear the keychain) and return to sign-in.
@@ -614,13 +618,14 @@ After `200` the JWT is dead server-side: clients drop the local session
 Standard auth headers (agent tokens refused). Body `{ "code": "<Apple authorization code>",
 "client": "web" | "ios" }` — `web` = the Services ID audience with return URL
 `https://www.gostash.it/auth`, `ios` = the bundle id. `200 { stored: true }`; `400` bad body;
-`502 { stored: false, error }` when Apple refuses (expired or reused code: `invalid_grant`);
-`500 { stored: false, error }` on any server-side failure (missing secrets, unreachable Apple,
-storage error). Call it immediately after `signInWithIdToken` — Apple's code lives five minutes
-and works once — and never block the sign-in on it. One token is kept per person per audience (a
-later call replaces it). `delete-account` revokes every stored token first and reports
-`apple: { revoked, failed }`. The function never logs Apple's response body (on a 2xx it can
-carry live tokens); only Apple's status and error code reach its log.
+`401` no or invalid session; `403` agent token; `405` not a `POST`; `502 { stored: false, error }`
+when Apple refuses (expired or reused code: `invalid_grant`); `500 { stored: false, error }` on any
+server-side failure (missing secrets, unreachable Apple, failing to store the token row). Call it
+immediately after `signInWithIdToken` — Apple's code lives five minutes and works once — and never
+block the sign-in on it. One token is kept per person per audience (a later call replaces it).
+`delete-account` revokes every stored token before it deletes the account and reports
+`apple: { revoked, failed }`. The function never logs Apple's response body (on a 2xx it can carry
+live tokens); only Apple's status and error code reach its log.
 
 ## Delete contract
 
