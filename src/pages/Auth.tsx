@@ -181,10 +181,10 @@ const Auth = () => {
   // A provider's identity token → Supabase. Apple's extras ride along: the name (first time only)
   // and the one-shot authorization code the server exchanges so deletion can revoke (spec §6.2).
   const handleProviderToken = async (t: ProviderIdToken) => {
+    // `| signing in…` is for while the token is with Supabase; after that the bar belongs to the gate
     setProviderBusy(true);
-    const { error } = await signInWithIdToken({ provider: t.provider, token: t.token, nonce: t.nonce });
+    const { error } = await signInWithIdToken({ provider: t.provider, token: t.token, nonce: t.nonce }).finally(() => setProviderBusy(false));
     if (error) {
-      setProviderBusy(false);
       toast({ title: "Sign-in didn't complete.", description: error.message, variant: 'destructive' });
       return;
     }

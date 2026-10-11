@@ -60,16 +60,16 @@ vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({ toast: mockToast }),
 }));
 
-const renderAuth = (path = '/auth') =>
-  render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/auth" element={<Auth />} />
-        <Route path="/home" element={<div>HOME PAGE</div>} />
-        <Route path="/oauth/consent" element={<div>CONSENT PAGE</div>} />
-      </Routes>
-    </MemoryRouter>,
-  );
+const authRoutes = (path: string) => (
+  <MemoryRouter initialEntries={[path]}>
+    <Routes>
+      <Route path="/auth" element={<Auth />} />
+      <Route path="/home" element={<div>HOME PAGE</div>} />
+      <Route path="/oauth/consent" element={<div>CONSENT PAGE</div>} />
+    </Routes>
+  </MemoryRouter>
+);
+const renderAuth = (path = '/auth') => render(authRoutes(path));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -144,13 +144,21 @@ describe('Auth — credentials for password managers', () => {
 });
 
 describe('Auth — Google and Apple', () => {
+  // The pair is the first thing in the open tab: the one Google button comes before the Email field
+  const expectPairAboveTheForm = () => {
+    const google = screen.getByRole('button', { name: /continue with google/i });
+    expect(google.compareDocumentPosition(screen.getByLabelText('Email')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  };
+
   it('shows the provider pair above both forms with the footnote and the rule', () => {
     renderAuth();
-    expect(screen.getByRole('button', { name: /continue with google/i })).toBeInTheDocument();
+    expectPairAboveTheForm();
     expect(screen.getByText('one account per email. sign in the same way each time.')).toBeInTheDocument();
     expect(screen.getByText('or with your email')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: /sign up/i }));
-    expect(screen.getByRole('button', { name: /continue with google/i })).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /sign up/i })); // Radix opens a tab on mousedown; a bare click leaves it shut
+    expect(screen.getByLabelText('Username')).toBeInTheDocument(); // the sign-up form is the one showing
+    expectPairAboveTheForm();
+    expect(screen.getByText('or with your email')).toBeInTheDocument();
   });
 
   it('hands the token and the raw nonce to Supabase', async () => {
@@ -211,6 +219,18 @@ describe('Auth — Google and Apple', () => {
     await waitFor(() => expect(mockToast).toHaveBeenCalled());
     const call = mockToast.mock.calls.at(-1)![0] as { description: unknown };
     expect(JSON.stringify(call.description)).toContain('Signed up with Google or Apple? Use that button.');
+  });
+
+  it('stops saying signing in once Supabase has answered, so the claim step is not announced as a sign-in', async () => {
+    const view = renderAuth();
+    fireEvent.click(screen.getByRole('button', { name: /continue with google/i }));
+    await waitFor(() => expect(auth.signInWithIdToken).toHaveBeenCalled());
+    // the session lands and the server has made this person's handle
+    auth.user = { id: 'u1', email: 'will@example.com' };
+    auth.handle = { username: 'stash3', confirmed: false };
+    view.rerender(authRoutes('/auth'));
+    expect(await screen.findByText('Claim your address.')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('hands Apple’s name to the profile and its one-shot code to the server', async () => {
