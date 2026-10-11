@@ -659,6 +659,7 @@ export type Database = {
           created_at: string
           display_name: string | null
           first_name: string | null
+          handle_confirmed: boolean
           id: string
           last_name: string | null
           public_feed_enabled: boolean
@@ -671,6 +672,7 @@ export type Database = {
           created_at?: string
           display_name?: string | null
           first_name?: string | null
+          handle_confirmed?: boolean
           id: string
           last_name?: string | null
           public_feed_enabled?: boolean
@@ -683,6 +685,7 @@ export type Database = {
           created_at?: string
           display_name?: string | null
           first_name?: string | null
+          handle_confirmed?: boolean
           id?: string
           last_name?: string | null
           public_feed_enabled?: boolean
