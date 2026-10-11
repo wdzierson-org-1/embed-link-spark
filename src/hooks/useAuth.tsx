@@ -1,5 +1,5 @@
 
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AuthError, User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -45,26 +45,37 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [handle, setHandle] = useState<HandleState | null>(null);
 
+  // Key the handle on the person, not on the `user` object: supabase-js re-emits SIGNED_IN with a
+  // freshly parsed session on every tab refocus (and again on token refresh), so the object changes
+  // while the person does not. Null while signed out or anonymous.
+  const userId = isRealUser(user) ? user!.id : null;
+  const liveUserId = useRef<string | null>(null);
+  useEffect(() => {
+    liveUserId.current = userId;
+  }, [userId]);
+
   const refreshHandle = useCallback(async () => {
-    if (!isRealUser(user)) {
+    if (!userId) {
       setHandle(null);
       return;
     }
-    let next = await fetchHandle(user!.id);
+    let next = await fetchHandle(userId);
     if (!next) {
       // The row is written by the sign-up trigger in the same transaction as the auth user, but a
       // replica or a slow round can make it miss once. Try again, then fail open: nobody gets stuck
       // on the way in because of a lookup; the step simply shows next time.
       await new Promise((resolve) => setTimeout(resolve, HANDLE_RETRY_MS));
-      next = await fetchHandle(user!.id);
+      next = await fetchHandle(userId);
     }
+    // Signed out, or switched account, while we were looking: drop the answer
+    if (liveUserId.current !== userId) return;
     setHandle(next ?? { username: '', confirmed: true });
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
     setHandle(null);
-    if (isRealUser(user)) void refreshHandle();
-  }, [user?.id, refreshHandle]);
+    void refreshHandle();
+  }, [refreshHandle]);
 
   const signInWithIdToken = async ({ provider, token, nonce }: IdTokenArgs) => {
     const { error } = await supabase.auth.signInWithIdToken({ provider, token, nonce });
