@@ -1,5 +1,5 @@
 // src/components/auth/ProviderButtons.tsx
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { APPLE_SERVICES_ID, GOOGLE_WEB_CLIENT_ID, appleRedirectUri } from '@/integrations/auth/providers';
 import { makeNonce } from '@/utils/nonce';
 import { useProviderScripts } from './useProviderScripts';
@@ -37,6 +37,8 @@ declare global {
 
 const BUTTON_HEIGHT = 40; // GIS "large" is fixed at 40 px; Apple's is set to match (spec §6.1)
 const clampWidth = (w: number) => Math.min(400, Math.max(200, w || 356));
+// Backing out is not an error (spec §9): Apple JS reports a closed window as popup_closed_by_user and its Cancel button as user_cancelled_authorize
+const SILENT_APPLE_ERRORS = new Set(['popup_closed_by_user', 'user_cancelled_authorize']);
 
 /**
  * The provider pair (DESIGN-v2 §12.14): Google's rendered button, then Apple's, both square,
@@ -49,18 +51,23 @@ export const ProviderButtons = ({ onToken, onError }: { onToken: (t: ProviderIdT
   const [width, setWidth] = useState(0);
   const [attempt, setAttempt] = useState(0);
   const inFlight = useRef(false);
+  // The provider SDKs keep the callbacks they were handed, so those reach the current props through this ref
+  const latest = useRef({ onToken, onError });
+  latest.current = { onToken, onError };
 
   // One credential at a time: a double-click or a second tab can't start a second sign-in
-  const deliver = async (t: ProviderIdToken) => {
+  const deliver = useCallback(async (t: ProviderIdToken) => {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      await onToken(t);
+      await latest.current.onToken(t);
+    } catch (e) {
+      latest.current.onError(e instanceof Error ? e.message : String(e)); // a throw is reported, never lost
     } finally {
       inFlight.current = false;
       setAttempt((a) => a + 1); // fresh nonces for the next try
     }
-  };
+  }, []);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -91,7 +98,7 @@ export const ProviderButtons = ({ onToken, onError }: { onToken: (t: ProviderIdT
       });
     });
     return () => { cancelled = true; };
-  }, [scripts.google, width, attempt]);
+  }, [scripts.google, width, attempt, deliver]);
 
   useEffect(() => {
     if (scripts.apple !== 'ready' || !width || !window.AppleID) return;
@@ -103,7 +110,7 @@ export const ProviderButtons = ({ onToken, onError }: { onToken: (t: ProviderIdT
     };
     const onFailure = (e: Event) => {
       const err = (e as CustomEvent).detail?.error;
-      if (err !== 'popup_closed_by_user') onError(String(err ?? 'Apple sign-in failed'));
+      if (!SILENT_APPLE_ERRORS.has(err)) latest.current.onError(String(err ?? 'Apple sign-in failed'));
     };
     void makeNonce().then((nonce) => {
       if (cancelled) return;
@@ -120,7 +127,7 @@ export const ProviderButtons = ({ onToken, onError }: { onToken: (t: ProviderIdT
       document.removeEventListener('AppleIDSignInOnSuccess', onSuccess);
       document.removeEventListener('AppleIDSignInOnFailure', onFailure);
     };
-  }, [scripts.apple, width, attempt]);
+  }, [scripts.apple, width, attempt, deliver]);
 
   if (scripts.google === 'failed' && scripts.apple === 'failed') return null;
   return (

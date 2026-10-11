@@ -20,8 +20,8 @@ beforeEach(() => {
   google.render.mockClear();
   apple.init = null;
   apple.render.mockClear();
-  (window as any).google = { accounts: { id: { initialize: (cfg: GoogleInit) => { google.init = cfg; }, renderButton: google.render } } };
-  (window as any).AppleID = { auth: { init: (cfg: typeof apple.init) => { apple.init = cfg; }, renderButton: apple.render } };
+  window.google = { accounts: { id: { initialize: (cfg: GoogleInit) => { google.init = cfg; }, renderButton: google.render } } };
+  window.AppleID = { auth: { init: (cfg: typeof apple.init) => { apple.init = cfg; }, renderButton: apple.render } };
 });
 
 const sha256 = async (s: string) =>
@@ -59,6 +59,24 @@ describe('ProviderButtons', () => {
     await act(async () => { release(); });
   });
 
+  it('reports a failing onToken through onError and takes the next credential', async () => {
+    const onToken = vi.fn().mockRejectedValueOnce(new Error('exchange refused')).mockRejectedValueOnce('plain refusal').mockResolvedValue(undefined);
+    const { onError } = setup(onToken);
+    await waitFor(() => expect(google.init).not.toBeNull());
+    const armed = google.init!;
+    await act(async () => { armed.callback({ credential: 'one' }); });
+    expect(onError).toHaveBeenLastCalledWith('exchange refused');
+    await waitFor(() => expect(google.init).not.toBe(armed)); // a failed attempt re-arms the pair with a fresh nonce
+    const rearmed = google.init!;
+    await act(async () => { rearmed.callback({ credential: 'two' }); });
+    expect(onError).toHaveBeenLastCalledWith('plain refusal'); // a throw that is not an Error is reported by its string form
+    await waitFor(() => expect(google.init).not.toBe(rearmed));
+    await act(async () => { google.init!.callback({ credential: 'three' }); });
+    expect(onToken).toHaveBeenCalledTimes(3);
+    expect(onToken.mock.calls[2][0]).toMatchObject({ provider: 'google', token: 'three' });
+    expect(onError).toHaveBeenCalledTimes(2);
+  });
+
   it('initializes Apple as a popup against /auth and delivers the token, code and name', async () => {
     const { onToken } = setup();
     await waitFor(() => expect(apple.init).not.toBeNull());
@@ -75,10 +93,12 @@ describe('ProviderButtons', () => {
     expect(apple.init!.nonce).not.toBe(live.nonce);
   });
 
-  it('is silent when the Apple popup is closed, loud on any other failure', async () => {
+  it('is silent when the Apple popup is closed or cancelled, loud on any other failure', async () => {
     const { onError } = setup();
     await waitFor(() => expect(apple.init).not.toBeNull());
     await act(async () => { document.dispatchEvent(new CustomEvent('AppleIDSignInOnFailure', { detail: { error: 'popup_closed_by_user' } })); });
+    expect(onError).not.toHaveBeenCalled();
+    await act(async () => { document.dispatchEvent(new CustomEvent('AppleIDSignInOnFailure', { detail: { error: 'user_cancelled_authorize' } })); });
     expect(onError).not.toHaveBeenCalled();
     await act(async () => { document.dispatchEvent(new CustomEvent('AppleIDSignInOnFailure', { detail: { error: 'invalid_request' } })); });
     expect(onError).toHaveBeenCalledWith('invalid_request');
