@@ -24,12 +24,18 @@ describe('useProviderScripts', () => {
     expect(screen.getAllByTestId('s')[0]).toHaveTextContent('ready/failed');
   });
 
-  it('lets a blocked script be retried on the next mount', async () => {
+  it('re-fetches a blocked script on the next mount', async () => {
     const first = render(<Probe />);
-    await act(async () => { tag(APPLE_JS_SRC).dispatchEvent(new Event('error')); });
+    const blocked = tag(APPLE_JS_SRC);
+    await act(async () => { blocked.dispatchEvent(new Event('error')); });
+    expect(screen.getByTestId('s')).toHaveTextContent('loading/failed');
     first.unmount();
-    document.head.querySelectorAll('script').forEach((el) => el.remove());
     render(<Probe />);
-    expect(document.querySelectorAll(`script[src="${APPLE_JS_SRC}"]`)).toHaveLength(1);
+    const retried = document.querySelectorAll(`script[src="${APPLE_JS_SRC}"]`);
+    expect(retried).toHaveLength(1);
+    expect(retried[0]).not.toBe(blocked);
+    expect(screen.getByTestId('s')).toHaveTextContent('loading/loading');
+    await act(async () => { retried[0].dispatchEvent(new Event('load')); });
+    expect(screen.getByTestId('s')).toHaveTextContent('loading/ready');
   });
 });

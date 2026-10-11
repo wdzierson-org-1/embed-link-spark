@@ -3,7 +3,7 @@ import { APPLE_JS_SRC, GIS_SRC } from '@/integrations/auth/providers';
 
 // The provider SDKs are third-party scripts; they load only on the way in, once per page session.
 // A blocked script (privacy extensions) fails quietly: its button slot collapses and the email form
-// is never affected (spec §6.1).
+// is never affected (spec §6.1). A blocked script's tag is removed so the next mount can try again.
 const cache = new Map<string, Promise<void>>();
 
 export function loadScript(src: string): Promise<void> {
@@ -13,7 +13,7 @@ export function loadScript(src: string): Promise<void> {
     const existing = document.querySelector<HTMLScriptElement>(`script[src="${src}"]`);
     const el = existing ?? document.createElement('script');
     el.addEventListener('load', () => resolve(), { once: true });
-    el.addEventListener('error', () => reject(new Error(`script failed: ${src}`)), { once: true });
+    el.addEventListener('error', () => { el.remove(); reject(new Error(`script failed: ${src}`)); }, { once: true });
     if (!existing) {
       el.src = src;
       el.async = true;
