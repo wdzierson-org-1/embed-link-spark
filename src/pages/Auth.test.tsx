@@ -10,10 +10,10 @@ const { mockReset, mockToast } = vi.hoisted(() => ({
 vi.mock('@/integrations/supabase/client', () => ({
   supabase: {
     auth: { resetPasswordForEmail: mockReset },
-    // username / phone uniqueness probes — never hit in these tests
+    // username availability probe (isUsernameTaken → maybeSingle) — never hit in these tests
     from: () => ({
       select: () => ({
-        eq: () => ({ single: () => Promise.resolve({ data: null, error: { code: 'PGRST116' } }) }),
+        eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }),
       }),
     }),
   },

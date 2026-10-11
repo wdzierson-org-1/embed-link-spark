@@ -1,10 +1,9 @@
 
 import { useState } from 'react';
-import { ArrowRight } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthShell, AuthTextAction, FieldError } from '@/components/auth/AuthShell';
-import { Spinner } from '@/components/machine/Machine';
-import { Button } from '@/components/ui/button';
+import { SubmitButton, field } from '@/components/auth/AuthControls';
+import { isUsernameTaken, sanitizeUsername } from '@/components/auth/usernameAvailability';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -13,27 +12,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useEffect } from 'react';
 import { usePhoneNumber } from '@/hooks/usePhoneNumber';
 import { supabase } from '@/integrations/supabase/client';
-
-// DESIGN-v2 forms: Montreal labels over square white fields (ink edge and spot ring on focus,
-// from the shared Input), one ink button, quiet machine-voice text actions
-const field = 'h-11 text-[15px] md:text-[15px]';
-
-/** The one ink button: its label, or the machine at work with the spinner */
-const SubmitButton = ({ busy, busyLabel, children, disabled }: { busy: boolean; busyLabel: string; children: React.ReactNode; disabled?: boolean }) => (
-  <Button type="submit" disabled={busy || disabled} className="h-11 w-full justify-between px-4 text-[15px] font-medium">
-    {busy ? (
-      <span className="flex items-baseline gap-[0.5ch] font-pixel text-pixel">
-        <Spinner />
-        {busyLabel}
-      </span>
-    ) : (
-      <>
-        <span>{children}</span>
-        <ArrowRight className="h-4 w-4" />
-      </>
-    )}
-  </Button>
-);
 
 // The person's line and the machine's prompt, per view
 const COPY = {
@@ -119,24 +97,7 @@ const Auth = () => {
 
   const checkUsernameUniqueness = async (username: string) => {
     if (!username || username.length < 3) return;
-    
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select('username')
-      .eq('username', username.toLowerCase())
-      .single();
-    
-    if (error && error.code !== 'PGRST116') {
-      // PGRST116 means no rows returned, which is what we want
-      console.error('Error checking username:', error);
-      return;
-    }
-    
-    if (data) {
-      setUsernameError('that username is taken. try another.');
-    } else {
-      setUsernameError('');
-    }
+    setUsernameError((await isUsernameTaken(username)) ? 'that username is taken. try another.' : '');
   };
 
   const checkPhoneUniqueness = async (phone: string) => {
@@ -370,7 +331,7 @@ const Auth = () => {
                     autoComplete="off"
                     value={username}
                     onChange={(e) => {
-                      const cleanUsername = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '');
+                      const cleanUsername = sanitizeUsername(e.target.value);
                       setUsername(cleanUsername);
                       if (cleanUsername.length >= 3) {
                         checkUsernameUniqueness(cleanUsername);
