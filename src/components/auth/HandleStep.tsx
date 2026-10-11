@@ -1,5 +1,5 @@
 // src/components/auth/HandleStep.tsx
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
@@ -32,16 +32,23 @@ export const HandleStep = ({ userId, serverUsername, initialUsername, email, onC
   const [username, setUsername] = useState(initialUsername);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const typed = useRef(false);
   const { toast } = useToast();
 
   // Live availability, debounced. The server's own handle is already this person's, so it is never
-  // probed; an answer that lands after the field has moved on is dropped.
+  // probed; an answer that lands after the field has moved on is dropped. A prefill the person has
+  // not touched that turns out to be taken (the server deduped it: johnsmith → johnsmith2) gives way
+  // to the server's handle, silently, when the forms would accept that handle (never a guest-… one);
+  // a handle the person typed keeps the error. Until they type, the field can only hold the prefill:
+  // typing and this fallback are the only writes, and the server's handle is never probed.
   useEffect(() => {
     if (username.length < 3 || username === serverUsername) return;
     let cancelled = false;
     const t = setTimeout(async () => {
       const taken = await isUsernameTaken(username, userId);
-      if (!cancelled && taken) setError(TAKEN);
+      if (cancelled || !taken) return;
+      if (!typed.current && USERNAME_RE.test(serverUsername)) setUsername(serverUsername);
+      else setError(TAKEN);
     }, 300);
     return () => {
       cancelled = true;
@@ -86,7 +93,8 @@ export const HandleStep = ({ userId, serverUsername, initialUsername, email, onC
             type="text"
             autoComplete="off"
             value={username}
-            onChange={(e) => { setUsername(sanitizeUsername(e.target.value)); setError(''); }}
+            onChange={(e) => { typed.current = true; setUsername(sanitizeUsername(e.target.value)); setError(''); }}
+            readOnly={busy}
             required
             minLength={3}
             maxLength={20}

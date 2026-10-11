@@ -111,4 +111,19 @@ describe('ProviderButtons', () => {
     expect(document.getElementById('appleid-signin')).toBeNull();
     expect(screen.getByTestId('google-slot')).toBeInTheDocument();
   });
+
+  it('shows its children under the buttons', async () => {
+    render(<ProviderButtons onToken={vi.fn()} onError={vi.fn()}><p>one account per email.</p></ProviderButtons>);
+    await waitFor(() => expect(apple.init).not.toBeNull());
+    const footnote = screen.getByText('one account per email.');
+    expect(document.getElementById('appleid-signin')!.compareDocumentPosition(footnote) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('renders nothing, children included, when both scripts failed', () => {
+    scripts.google = 'failed';
+    scripts.apple = 'failed';
+    const { container } = render(<ProviderButtons onToken={vi.fn()} onError={vi.fn()}><p>one account per email.</p></ProviderButtons>);
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByText('one account per email.')).toBeNull();
+  });
 });

@@ -16,6 +16,11 @@ describe('usernameAvailability', () => {
     expect(USERNAME_RE.test('abc')).toBe(true);
   });
 
+  it('folds accents into their letters instead of dropping them', () => {
+    expect(sanitizeUsername('José García')).toBe('josegarcia');
+    expect(sanitizeUsername('Zoë')).toBe('zoe');
+  });
+
   it('suggests a handle from a name only when it is long enough', () => {
     expect(suggestHandle('Will Dzierson')).toBe('willdzierson');
     expect(suggestHandle('李')).toBeNull();
@@ -42,33 +47,36 @@ describe('usernameAvailability', () => {
 describe('handlePrefill', () => {
   const person = (email: string | undefined, user_metadata: Record<string, unknown> = {}) => ({ email, user_metadata });
 
-  it('starts from the name the provider gave us, ahead of the server handle', () => {
+  it('starts from the name the provider gave us, ahead of the email and the server handle', () => {
     expect(handlePrefill(person('will@example.com', { full_name: 'Will Dzierson' }), 'stash3')).toBe('willdzierson');
     expect(handlePrefill(person('will@example.com', { name: 'Will Dzierson' }), 'guest-ab12cd34')).toBe('willdzierson');
-    // a name too short to make a handle, or not a string at all, is no name
-    expect(handlePrefill(person('will@example.com', { full_name: '李' }), 'stash3')).toBe('stash3');
-    expect(handlePrefill(person('will@example.com', { full_name: 42 }), 'stash3')).toBe('stash3');
   });
 
-  it('lets a name the client just learned win over the metadata name and the server handle', () => {
+  it('lets a name the client just learned win over the metadata name and the rest of the chain', () => {
     // Apple sends its name in the sign-in event itself; the metadata write that records it can land after the claim step opens
     expect(handlePrefill(person('will@example.com'), 'stash3', 'Will Dzierson')).toBe('willdzierson');
     expect(handlePrefill(person('will@example.com', { full_name: 'Someone Else' }), 'stash3', 'Will Dzierson')).toBe('willdzierson');
-    // no such name: the metadata name, then the rest of the chain, exactly as before
+    // no such name: the metadata name, then the rest of the chain
     expect(handlePrefill(person('will@example.com', { full_name: 'Will Dzierson' }), 'stash3', null)).toBe('willdzierson');
-    expect(handlePrefill(person('will@example.com'), 'stash3', undefined)).toBe('stash3');
+    expect(handlePrefill(person('will@example.com'), 'stash3', undefined)).toBe('will');
   });
 
-  it('keeps the server handle when there is no name and the forms would accept it', () => {
-    expect(handlePrefill(person('will@example.com'), 'stash3')).toBe('stash3');
-  });
-
-  it('never prefills a guest-shaped handle: the email local part stands in', () => {
+  it('falls back to the email local part when there is no name, ahead of the server handle', () => {
+    expect(handlePrefill(person('will@example.com'), 'stash3')).toBe('will');
     expect(handlePrefill(person('will@example.com'), 'guest-ab12cd34')).toBe('will');
     expect(handlePrefill(person('Will.Dz@Example.com'), '')).toBe('willdz');
+    // a name that leaves too little (a non-Latin one), or is not a string at all, is no name — and the
+    // email says more than the server's digit-padded handle
+    expect(handlePrefill(person('ivanpetrov@example.com', { full_name: 'Иван Петров' }), '123')).toBe('ivanpetrov');
+    expect(handlePrefill(person('will@example.com', { full_name: 42 }), 'stash3')).toBe('will');
   });
 
-  it('prefills nothing when all there is to go on is an Apple relay address, or no address', () => {
+  it('takes the server handle when there is no name and the email gives nothing: a relay address, or too short a local part', () => {
+    expect(handlePrefill(person('kz8f3q2m@privaterelay.appleid.com'), 'stash3')).toBe('stash3');
+    expect(handlePrefill(person('jo@example.com'), 'jo2')).toBe('jo2');
+  });
+
+  it('prefills nothing when nothing usable is left: no name, no usable email, a guest-shaped handle', () => {
     expect(handlePrefill(person('kz8f3q2m@privaterelay.appleid.com'), 'guest-ab12cd34')).toBe('');
     expect(handlePrefill(person(undefined), 'guest-ab12cd34')).toBe('');
   });

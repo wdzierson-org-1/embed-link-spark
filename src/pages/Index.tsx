@@ -115,8 +115,9 @@ const Index = () => {
     // A handle the server generated (Google/Apple sign-up, a converted guest) is claimed once on
     // the way in before the library opens (spec §6.3)
     // Only a known `confirmed === false` redirects; `handle` is null while the lookup is in flight, so unknown never bounces.
+    // It replaces this entry: Back from the claim step must not land here and be bounced straight back.
     if (!loading && user && handle && handle.confirmed === false) {
-      navigate('/auth?mode=handle');
+      navigate('/auth?mode=handle', { replace: true });
     }
   }, [loading, user, handle, navigate]);
 

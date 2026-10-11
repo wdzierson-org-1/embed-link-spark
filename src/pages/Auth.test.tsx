@@ -1,5 +1,5 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import Auth from './Auth';
 import { writeAppleName } from '@/components/auth/appleName';
 
@@ -39,7 +39,8 @@ vi.mock('@/components/auth/ProviderButtons', () => {
     if (el) pairMounted();
   };
   return {
-    ProviderButtons: ({ onToken }: { onToken: (t: unknown) => void }) => (
+    // the real pair shows its children (the footnote and the rule) under the buttons while either is alive
+    ProviderButtons: ({ onToken, children }: { onToken: (t: unknown) => void; children?: React.ReactNode }) => (
       <>
         <button ref={attached} type="button" onClick={() => onToken({ provider: 'google', token: 'g.jwt', nonce: 'raw' })}>Continue with Google</button>
         <button
@@ -48,6 +49,7 @@ vi.mock('@/components/auth/ProviderButtons', () => {
         >
           Continue with Apple
         </button>
+        {children}
       </>
     ),
   };
@@ -189,6 +191,16 @@ describe('Auth — Google and Apple', () => {
     expect(screen.queryByText('HOME PAGE')).toBeNull();
   });
 
+  it('shows the forms to an anonymous session', () => {
+    // a try-stash visitor: signing in replaces their session, so they get the way in, not the gate
+    auth.user = { id: 'anon', email: '', is_anonymous: true };
+    auth.handle = null;
+    renderAuth();
+    expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByText('HOME PAGE')).toBeNull();
+  });
+
   it('shows no form while opening, only the bar saying so', () => {
     auth.user = { id: 'u1', email: 'will@example.com' };
     renderAuth('/auth?mode=handle');
@@ -258,6 +270,27 @@ describe('Auth — Google and Apple', () => {
     expect(await screen.findByText('HOME PAGE')).toBeInTheDocument();
   });
 
+  it('replaces the way in on the way on, so Back never lands on it again', async () => {
+    auth.user = { id: 'u1', email: 'will@example.com' };
+    auth.handle = { username: 'will', confirmed: true };
+    const Back = () => {
+      const navigate = useNavigate();
+      return <button type="button" onClick={() => navigate(-1)}>back</button>;
+    };
+    render(
+      <MemoryRouter initialEntries={['/', '/auth']} initialIndex={1}>
+        <Routes>
+          <Route path="/" element={<div>LANDING PAGE</div>} />
+          <Route path="/auth" element={<Auth />} />
+          <Route path="/home" element={<Back />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'back' }));
+    // pushed, Back would reopen /auth, and the gate would send them straight on again
+    expect(await screen.findByText('LANDING PAGE')).toBeInTheDocument();
+  });
+
   it('adds the provider hint to a failed password sign-in', async () => {
     auth.signIn.mockResolvedValueOnce({ error: { message: 'Invalid login credentials' } });
     renderAuth();
@@ -292,6 +325,18 @@ describe('Auth — Google and Apple', () => {
     await waitFor(() => expect(writeAppleName).toHaveBeenCalledWith(auth.user, { firstName: 'Will', lastName: 'Dzierson' }));
     expect(auth.signInWithIdToken).toHaveBeenCalledWith({ provider: 'apple', token: 'a.jwt', nonce: 'raw' });
     expect(mockInvoke).toHaveBeenCalledWith('apple-token-exchange', { body: { code: 'apple-code', client: 'web' } });
+  });
+
+  it('a refused Apple token never reaches apple-token-exchange', async () => {
+    // a try-stash visitor's session is still there when Supabase refuses: nothing of Apple's may land on it
+    auth.user = { id: 'anon', email: '', is_anonymous: true };
+    auth.signInWithIdToken.mockResolvedValueOnce({ error: { message: 'Apple said no' } });
+    renderAuth();
+    fireEvent.click(screen.getByRole('button', { name: /continue with apple/i }));
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ description: 'Apple said no' })));
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); // let anything still chained after the refusal run
+    expect(mockInvoke).not.toHaveBeenCalled();
+    expect(writeAppleName).not.toHaveBeenCalled();
   });
 
   it('prefills the claim step from the name Apple just sent, before the profile holds any name', async () => {

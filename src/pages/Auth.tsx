@@ -67,11 +67,12 @@ const Auth = () => {
   // onward. `mode=handle` (Index sends unconfirmed people here) needs nothing special — the same
   // rules decide. The view follows the person in the very render that learns who they are, not in an
   // effect after the paint, so no frame shows the forms to someone who is signed in, or "Claim your
-  // address." to someone who signed out in another tab.
+  // address." to someone who signed out in another tab. Onward replaces this page in the history:
+  // Back must not reopen it only for the gate to send the person on again.
   if (isRealUser && handle && !handle.confirmed && view !== 'handle') setView('handle');
   if (!isRealUser && view === 'handle') setView('tabs');
   useEffect(() => {
-    if (isRealUser && handle?.confirmed) navigate(destination);
+    if (isRealUser && handle?.confirmed) navigate(destination, { replace: true });
   }, [isRealUser, handle, navigate, destination]);
 
   const handleSignIn = async (e: React.FormEvent) => {
@@ -242,19 +243,21 @@ const Auth = () => {
   const copy = view === 'handle' ? COPY.handle : view === 'reset' ? (resetSent ? COPY.sent : COPY.reset) : COPY[tab];
 
   // The pair sits above the fields on both tabs (Radix mounts only the active tab, so one Google
-  // button and one #appleid-signin exist at a time)
+  // button and one #appleid-signin exist at a time). The footnote and the rule ride inside it: when
+  // neither provider script loads they go with it, and `empty:hidden` takes the gap too
   const providerPair = (
-    <div className="mb-6 space-y-3">
+    <div className="mb-6 empty:hidden">
       <ProviderButtons
         onToken={handleProviderToken}
         onError={(message) => toast({ title: "Sign-in didn't complete.", description: message, variant: 'destructive' })}
-      />
-      <p className="font-pixel text-pixel text-muted-foreground">one account per email. sign in the same way each time.</p>
-      <div className="flex items-center gap-3 font-pixel text-pixel text-muted-foreground" aria-hidden>
-        <span className="h-px flex-1 bg-ink/15" />
-        <span>or with your email</span>
-        <span className="h-px flex-1 bg-ink/15" />
-      </div>
+      >
+        <p className="font-pixel text-pixel text-muted-foreground">one account per email. sign in the same way each time.</p>
+        <div className="flex items-center gap-3 font-pixel text-pixel text-muted-foreground" aria-hidden>
+          <span className="h-px flex-1 bg-ink/15" />
+          <span>or with your email</span>
+          <span className="h-px flex-1 bg-ink/15" />
+        </div>
+      </ProviderButtons>
     </div>
   );
 

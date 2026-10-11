@@ -34,9 +34,9 @@ const toast = vi.fn();
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
 
 // The server named this person stash3; the parent suggests willdzierson from their provider name
-const setup = (initial = 'willdzierson', email?: string) => {
+const setup = (initial = 'willdzierson', email?: string, server = 'stash3') => {
   const onClaimed = vi.fn();
-  render(<HandleStep userId="u1" serverUsername="stash3" initialUsername={initial} email={email} onClaimed={onClaimed} />);
+  render(<HandleStep userId="u1" serverUsername={server} initialUsername={initial} email={email} onClaimed={onClaimed} />);
   return { onClaimed, input: screen.getByLabelText('Username') as HTMLInputElement, button: screen.getByRole('button', { name: /continue/i }) };
 };
 
@@ -131,6 +131,57 @@ describe('HandleStep', () => {
     await act(async () => { release(); }); // the old answer finally lands
     expect(screen.queryByText(/that username is taken/)).not.toBeInTheDocument();
     expect(button).toBeEnabled();
+  });
+
+  it("a taken prefill falls back to the server's handle without an error", async () => {
+    vi.useFakeTimers();
+    db.taken = { id: 'someone-else' }; // johnsmith is someone else's, which is why the server named this person johnsmith2
+    const { input, button } = setup('johnsmith', undefined, 'johnsmith2');
+    await elapse(400);
+    expect(input.value).toBe('johnsmith2');
+    expect(screen.queryByText(/that username is taken/)).not.toBeInTheDocument();
+    expect(screen.getByText('gostash.it/feed/johnsmith2')).toBeInTheDocument();
+    expect(button).toBeEnabled();
+    expect(db.reads).toEqual([['id', 'username', 'johnsmith']]); // the server's handle is this person's own: never probed
+  });
+
+  it('a guest-shaped server handle is never offered', async () => {
+    vi.useFakeTimers();
+    db.taken = { id: 'someone-else' };
+    const { input, button } = setup('will', undefined, 'guest-ab12cd34');
+    await elapse(400);
+    expect(input.value).toBe('will');
+    expect(screen.getByText(/that username is taken/)).toBeInTheDocument();
+    expect(button).toBeDisabled();
+  });
+
+  it('a typed taken handle still errors', async () => {
+    vi.useFakeTimers();
+    db.taken = { id: 'someone-else' };
+    const { input, button } = setup(); // the server's stash3 could stand in, but never for a handle the person typed
+    fireEvent.change(input, { target: { value: 'taken' } });
+    await elapse(400);
+    expect(input.value).toBe('taken');
+    expect(screen.getByText(/that username is taken/)).toBeInTheDocument();
+    expect(button).toBeDisabled();
+    // typing the prefill back in is typing too
+    fireEvent.change(input, { target: { value: 'willdzierso' } });
+    fireEvent.change(input, { target: { value: 'willdzierson' } });
+    await elapse(400);
+    expect(input.value).toBe('willdzierson');
+    expect(screen.getByText(/that username is taken/)).toBeInTheDocument();
+  });
+
+  it('holds the field still while the claim is in flight', async () => {
+    let finish!: () => void;
+    db.update.mockImplementation(() => new Promise<{ error: null }>((resolve) => { finish = () => resolve({ error: null }); }));
+    const { input, button, onClaimed } = setup();
+    expect(input).not.toHaveAttribute('readonly');
+    fireEvent.click(button);
+    await waitFor(() => expect(input).toHaveAttribute('readonly'));
+    await act(async () => { finish(); });
+    await waitFor(() => expect(onClaimed).toHaveBeenCalled());
+    expect(input).not.toHaveAttribute('readonly');
   });
 
   it.each<[string, { display_name: string | null } | null]>([

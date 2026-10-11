@@ -124,21 +124,25 @@ describe("Index", () => {
     expect(sweepMock).toHaveBeenCalledTimes(1);
   });
 
-  it("sends a person with an unconfirmed handle back to the way in", async () => {
+  // Every place the library tried to send the person, whatever the options
+  const destinations = () => navigateMock.mock.calls.map(([to]) => to);
+
+  it("sends a person with an unconfirmed handle back to the way in, replacing the library in history", async () => {
     authState.handle = { username: "guest-12345678", confirmed: false };
     render(<Index />);
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/auth?mode=handle"));
+    // replace: Back from the claim step must not land on /home, which would send them straight back
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/auth?mode=handle", { replace: true }));
   });
 
   it("never redirects while the handle is still unknown", () => {
     authState.handle = null;
     render(<Index />);
-    expect(navigateMock).not.toHaveBeenCalledWith("/auth?mode=handle");
+    expect(destinations()).not.toContain("/auth?mode=handle");
   });
 
   it("leaves a confirmed person alone", () => {
     authState.handle = { username: "will", confirmed: true };
     render(<Index />);
-    expect(navigateMock).not.toHaveBeenCalledWith("/auth?mode=handle");
+    expect(destinations()).not.toContain("/auth?mode=handle");
   });
 });

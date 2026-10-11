@@ -43,8 +43,18 @@ const SILENT_APPLE_ERRORS = new Set(['popup_closed_by_user', 'user_cancelled_aut
 /**
  * The provider pair (DESIGN-v2 §12.14): Google's rendered button, then Apple's, both square,
  * both "Continue with …", at the window body's measured width. Each attempt gets its own nonce.
+ * `children` (the page's footnote and rule) sit under the buttons and go with them: when neither
+ * script loaded, nothing renders at all.
  */
-export const ProviderButtons = ({ onToken, onError }: { onToken: (t: ProviderIdToken) => Promise<void> | void; onError: (message: string) => void }) => {
+export const ProviderButtons = ({
+  onToken,
+  onError,
+  children,
+}: {
+  onToken: (t: ProviderIdToken) => Promise<void> | void;
+  onError: (message: string) => void;
+  children?: React.ReactNode;
+}) => {
   const scripts = useProviderScripts();
   const wrapRef = useRef<HTMLDivElement>(null);
   const googleRef = useRef<HTMLDivElement>(null);
@@ -146,6 +156,7 @@ export const ProviderButtons = ({ onToken, onError }: { onToken: (t: ProviderIdT
           style={{ minHeight: BUTTON_HEIGHT }}
         />
       )}
+      {children}
     </div>
   );
 };
