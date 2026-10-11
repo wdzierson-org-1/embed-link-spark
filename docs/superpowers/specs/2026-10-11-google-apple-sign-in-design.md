@@ -242,8 +242,9 @@ documented even though the local stack is not used here.
 
 ### 5.4 Secrets (`supabase secrets set`)
 
-`APPLE_TEAM_ID` (`3CH3K9NTT2`), `APPLE_KEY_ID`, `APPLE_SIGNIN_PRIVATE_KEY` (the `.p8` contents),
-`APPLE_SERVICES_ID`, `APPLE_BUNDLE_ID` (`it.gostash.stash`). No Google secret.
+`APPLE_TEAM_ID` (`3CH3K9NTT2`), `APPLE_KEY_ID`, `APPLE_SIGNIN_PRIVATE_KEY_B64` (the `.p8` contents,
+base64-encoded so the multi-line PEM survives the env-file format — functions decode before
+importing the key), `APPLE_SERVICES_ID`, `APPLE_BUNDLE_ID` (`it.gostash.stash`). No Google secret.
 
 ## 6. Web
 
@@ -447,6 +448,17 @@ redirect. `/extension/connect`: not-installed, failed (`lastError`), connected. 
   download the `.p8` once (goes to `supabase secrets`, §5.4); register `gostash.it` under *Sign in
   with Apple for Email Communication*. Deliver: the Services ID, the Key ID, the `.p8` (to the
   secret store, not chat).
+  **Done 2026-10-11** (Claude, in Will's developer account): Sign In with Apple enabled on App ID
+  `it.gostash.stash` (App Groups untouched; provisioning profiles regenerate under automatic
+  signing). Services ID **`it.gostash.web`** ("Stash web") — primary `it.gostash.stash`, domain
+  `www.gostash.it`, return URL `https://www.gostash.it/auth` (the branch-preview host is added
+  when a preview is first needed). Key **`3MDLB623WL`** ("Stash Sign in with Apple", the team's
+  first key): the `.p8` was downloaded once to Will's machine (never into the repo) and loaded the
+  same day into the Supabase secrets of §5.4. Email sources: `gostash.it` registered, **SPF
+  verified**; `mail.gostash.it` registered, **SPF unverified** — it has no SPF TXT of its own
+  (Resend's sits on `send.mail.gostash.it`), so until a `TXT mail.gostash.it "v=spf1
+  include:amazonses.com ~all"` record exists at GoDaddy and "Reverify SPF" is clicked, mail from
+  `no-reply@`/`reminders@mail.gostash.it` will not reach Hide-My-Email relay addresses.
 - *Chrome Web Store:* none required — the key pair in §7 is generated locally; the eventual store
   upload inherits the id from the manifest's `key`.
 
