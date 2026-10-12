@@ -12,9 +12,12 @@
 //   2. Storage — remove every object under `<user_id>/` in stash-media
 //      (uploads, previews/, staging/, WhatsApp media). No constraint covers
 //      storage, so this has to be explicit.
-//   3. Sign in with Apple — revoke every refresh token apple-token-exchange
-//      stored for this user (Apple asks for this on account deletion); best
-//      effort, logged, never blocking.
+//   3. Sign in with Apple — copy every refresh token apple-token-exchange stored
+//      for this user into apple_revocations (no FK to auth.users, so the row
+//      outlives the account), then revoke at Apple now; whatever Apple does not
+//      confirm stays queued for apple-revocation-sweep (2026-10-12). Unreadable
+//      tokens or a failed copy refuse the deletion (503, retryable): nothing is
+//      deleted until the revocation material is safe.
 //   4. auth.admin.deleteUser — the DB cascades from migration 20260907120000
 //      take items, embeddings, tags, conversations, phone, profile, grants,
 //      feedback, logs, and the auth.* rows.
@@ -25,7 +28,8 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { isAgentToken } from "../_shared/agentToken.ts";
-import { appleEnv, makeAppleClientSecret } from "../_shared/appleClientSecret.ts";
+import { appleEnv } from "../_shared/appleClientSecret.ts";
+import { revokeAtApple, stageAndRevokeForDeletion, supabaseRevocationStore, type RevokeFn, type StoredAppleToken } from "../_shared/appleRevocation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -102,47 +106,17 @@ async function cancelStripeSubscriptions(email: string): Promise<{ customers: nu
   return { customers: customers.data.length, canceled };
 }
 
-const APPLE_REVOKE_URL = "https://appleid.apple.com/auth/revoke";
-
-async function revokeAppleTokens(admin: SupabaseClient, userId: string): Promise<{ revoked: number; failed: number }> {
-  const { data, error } = await admin.from("apple_sign_in_tokens").select("client_id, refresh_token").eq("user_id", userId);
-  if (error) {
-    log("Apple tokens unreadable", { message: error.message });
-    return { revoked: 0, failed: 0 };
-  }
-  const rows = (data ?? []) as Array<{ client_id: string; refresh_token: string }>;
-  if (rows.length === 0) return { revoked: 0, failed: 0 };
+// One revoke at Apple, now. Missing secrets are a `retry` (the row stays queued for the sweep),
+// not a skip. Logic, classification and acceptance tests: _shared/appleRevocation.ts.
+const revokeNow: RevokeFn = async (token: StoredAppleToken) => {
   let env: ReturnType<typeof appleEnv>;
   try {
     env = appleEnv();
   } catch (e) {
-    log("Apple revoke skipped: secrets missing", { message: e instanceof Error ? e.message : String(e) });
-    return { revoked: 0, failed: rows.length };
+    return { kind: "retry", reason: `secrets missing: ${e instanceof Error ? e.message : String(e)}` };
   }
-  let revoked = 0;
-  let failed = 0;
-  for (const row of rows) {
-    try {
-      const clientSecret = await makeAppleClientSecret({ teamId: env.teamId, keyId: env.keyId, clientId: row.client_id, privateKeyPem: env.privateKeyPem });
-      const res = await fetch(APPLE_REVOKE_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ client_id: row.client_id, client_secret: clientSecret, token: row.refresh_token, token_type_hint: "refresh_token" }).toString(),
-        // A stalled Apple must never hold up deletion: the abort lands in the catch below and counts as failed.
-        signal: AbortSignal.timeout(8_000),
-      });
-      if (res.ok) revoked += 1;
-      else {
-        failed += 1;
-        log("Apple revoke refused", { clientId: row.client_id, status: res.status });
-      }
-    } catch (e) {
-      failed += 1;
-      log("Apple revoke failed", { clientId: row.client_id, message: e instanceof Error ? e.message : String(e) });
-    }
-  }
-  return { revoked, failed };
-}
+  return revokeAtApple({ fetch, env }, token);
+};
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -174,7 +148,15 @@ serve(async (req) => {
     await removeObjects(admin, paths);
     log("Storage done", { objects: paths.length });
 
-    const apple = await revokeAppleTokens(admin, userId);
+    let apple;
+    try {
+      apple = await stageAndRevokeForDeletion(supabaseRevocationStore(admin), revokeNow, userId, new Date());
+    } catch (e) {
+      // The tokens could not be read or copied into the queue: deleting now would cascade the only
+      // revocation material away. Refuse; every step so far is safe to repeat.
+      log("Apple tokens unavailable", { userId, message: e instanceof Error ? e.message : String(e) });
+      return json(503, { deleted: false, error: "apple_tokens_unavailable", retryable: true });
+    }
     log("Apple done", apple);
 
     const { error: deleteError } = await admin.auth.admin.deleteUser(userId);

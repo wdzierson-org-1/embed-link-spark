@@ -9,6 +9,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { isAgentToken } from "../_shared/agentToken.ts";
 import { appleEnv, makeAppleClientSecret } from "../_shared/appleClientSecret.ts";
+import { appleReadiness } from "../_shared/appleRevocation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,7 +23,7 @@ const json = (status: number, body: unknown) =>
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method !== "POST") return json(405, { error: "POST only" });
+  if (req.method !== "POST" && req.method !== "GET") return json(405, { error: "GET or POST only" });
 
   const token = req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "").trim();
   if (!token) return json(401, { error: "Missing authorization token" });
@@ -39,6 +40,16 @@ Deno.serve(async (req) => {
   // A try-stash guest has no Apple grant of its own to keep: a successful Apple sign-in replaces
   // that session before any client calls this.
   if ((user as { is_anonymous?: boolean }).is_anonymous) return json(403, { error: "anonymous" });
+
+  // Readiness (2026-10-12, AS-APPLE-REVOCATION): will deletion have anything to revoke? Native
+  // calls this before delete-account and re-authorizes with Apple first when
+  // `apple_identity && !stored`. Reports audiences and dates only — never a token.
+  if (req.method === "GET") {
+    const { data, error } = await admin.from("apple_sign_in_tokens").select("client_id, created_at").eq("user_id", user.id);
+    if (error) return json(503, { error: "apple_tokens_unavailable", retryable: true });
+    const identities = (user as { identities?: Array<{ provider?: string }> }).identities;
+    return json(200, appleReadiness((data ?? []) as Array<{ client_id: string; created_at: string }>, identities, Deno.env.get("APPLE_BUNDLE_ID") ?? null));
+  }
 
   // Unparseable JSON and a JSON null both arrive as {}, so they meet the same 400 below
   const body = ((await req.json().catch(() => null)) ?? {}) as { code?: unknown; client?: unknown };

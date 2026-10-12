@@ -8,6 +8,38 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-12 · Account deletion keeps its Apple revocation material; Ask stops offering actions it cannot take
+
+Two App Store review follow-ups (`docs/agent-coordination.md`, AS-APPLE-REVOCATION and AS-ASK).
+No visible UI change on any platform.
+
+- **Contract — `POST /delete-account`:** every Sign in with Apple refresh token on file is copied
+  into a queue that outlives the account **before** Apple is asked and before the user row is
+  deleted. The response's `apple` object is now `{ revoked, failed, pending, invalid }` (`failed`
+  equals `pending` and is kept for existing clients): `pending` = Apple did not confirm (transient
+  failure, timeout, missing secrets) and a server cron retries with backoff for up to 20 attempts;
+  `invalid` = Apple says the token is already gone. New
+  `503 { deleted: false, error: "apple_tokens_unavailable", retryable: true }` when the tokens
+  cannot be read or copied — nothing was deleted; call again. Clients keep treating `200` as
+  "account gone" and the `apple` counts as informational.
+- **Contract — `GET /apple-token-exchange` (new, additive):** same auth as the `POST` →
+  `200 { apple_identity, stored, clients: [{ client: "ios" | "web", obtained_at }] }`.
+  **iOS (Codex):** before `delete-account`, call it; when `apple_identity && !stored`, ask the person
+  to re-authorize with Apple and `POST apple-token-exchange { code, client: "ios" }` first; if they
+  decline or it fails, delete anyway. Never retry an authorization code (single-use).
+- **Ask (all platforms):** the system prompt now names the whole toolset (search, browse, read) and
+  forbids offering reminders, directions/maps, sending, editing, deleting, sharing, saving or
+  opening links; when an item holds something actionable it adds "Tap the title to open your saved
+  item." The APP GUIDE no longer describes phone/WhatsApp capture and points reminders at the
+  item's "Resurface in…" menu (web). Clients change nothing; Codex recaptures the Ask screenshot
+  after the deploy.
+- **Backend:** migration `20261012210000_apple_revocations` (table + 15-minute cron), new function
+  `apple-revocation-sweep`, `delete-account`, `apple-token-exchange`, `chat-with-all-content`;
+  logic + tests in `supabase/functions/_shared/appleRevocation.ts` and `askGuidance.ts`. Platform
+  API: "Account deletion" and the `apple-token-exchange` sections.
+
+---
+
 ## 2026-10-12 · Phone capture withdrawn until the phone-based features ship
 
 Will: "remove the phone number requirement from the sign up page for now and also take it off

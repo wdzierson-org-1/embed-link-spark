@@ -659,32 +659,46 @@ and the call can simply be retried:
    is canceled (customer record kept for invoice history, tagged
    `stash_account_deleted_at`).
 2. Storage — every object under `stash-media/<user_id>/` is removed.
-3. Sign in with Apple — every refresh token `apple-token-exchange` stored for the
-   user is revoked at Apple (best effort, never blocks: a refusal, a stalled
-   Apple — each call gives up after 8 s — or missing secrets is logged, counted
-   in `apple.failed`, and deletion goes on).
+3. Sign in with Apple (2026-10-12) — every refresh token `apple-token-exchange`
+   stored for the user is first copied into `apple_revocations`, a queue with no
+   foreign key to `auth.users` so it outlives the account; if the tokens cannot
+   be read or copied the call stops here with `503` and nothing is deleted. Then
+   each token is revoked at Apple now (each call gives up after 8 s): a 2xx is
+   `revoked`, Apple's `invalid_grant` (already revoked / expired) is `invalid`,
+   anything else — a refusal, a stalled Apple, missing secrets — leaves the row
+   `pending` and the `apple-revocation-sweep` cron retries it every 15 minutes
+   with backoff (15 min doubling to 24 h, at most 20 attempts, then
+   `exhausted`). Tokens are nulled the moment a row leaves `pending`; terminal
+   rows are purged after 30 days.
 4. `auth.admin.deleteUser` — DB cascades take items, embeddings, tags,
    conversations, messages, phone number, profile, agent grants, feedback,
    logs, the stored Apple tokens and all `auth.*` rows (migrations
-   `20260907120000`, `20261011150000`).
+   `20260907120000`, `20261011150000`); the `apple_revocations` rows
+   deliberately survive (`20261012210000`).
 
 ```
 200 { "deleted": true, "storageObjects": 42, "stripe": { "customers": 1, "canceled": 1 },
-      "apple": { "revoked": 1, "failed": 0 } }
+      "apple": { "revoked": 1, "failed": 0, "pending": 0, "invalid": 0 } }
 401 { "error": "Invalid or expired token" }
 403 { "error": "Agent tokens cannot delete an account" }
 500 { "deleted": false, "error": "<step>: <reason>" }
       ← the account is intact; Stripe cancellations, removed files and Apple
         revocations that already ran are not undone — call again
+503 { "deleted": false, "error": "apple_tokens_unavailable", "retryable": true }
+      ← (2026-10-12) the stored Apple tokens could not be read or queued; the
+        account is intact — call again
 ```
 
-`apple.revoked` counts the stored tokens whose revoke Apple answered with 2xx. That
-is not proof a grant ended: Apple answers `200` even for a token it does not
-know, so a retry after a later failure still counts. `apple.failed` counts revokes
-Apple refused, that timed out, or that could not be attempted (secrets missing); a
-failed read of the token table reports `{ revoked: 0, failed: 0 }` and is logged
-server-side. Both are `0` for anyone who never used Sign in with Apple. Informational:
-what a client does on `200` is unchanged.
+`apple.revoked` counts the stored tokens whose revoke Apple answered with 2xx now
+(Apple answers `200` even for a token it no longer knows). `apple.pending`
+(2026-10-12) counts tokens Apple did not confirm — a refusal other than
+`invalid_grant`, a timeout, missing secrets — which are queued and retried
+server-side after the account is gone; `apple.failed` equals `pending` and is kept
+for clients written against the first contract. `apple.invalid` counts tokens Apple
+reports as already revoked or expired (terminal). All are `0` for anyone who never
+used Sign in with Apple. Informational: what a client does on `200` is unchanged.
+To learn beforehand whether a deletion will have anything to revoke, see
+`GET /apple-token-exchange` below.
 
 After `200` the JWT is dead server-side: clients drop the local session
 (`signOut({ scope: 'local' })` / clear the keychain) and return to sign-in.
@@ -695,14 +709,27 @@ Standard auth headers (agent tokens and anonymous sessions refused). Body
 `{ "code": "<Apple authorization code>", "client": "web" | "ios" }` — `web` = the Services ID
 audience with return URL `https://www.gostash.it/auth`, `ios` = the bundle id. `200 { stored: true }`;
 `400` bad body; `401` no or invalid session; `403` agent token, or `403 { error: 'anonymous' }` for
-an anonymous (try-stash) session; `405` not a `POST`; `502 { stored: false, error }`
+an anonymous (try-stash) session; `405` not a `GET`/`POST`; `502 { stored: false, error }`
 when Apple refuses (expired or reused code: `invalid_grant`); `500 { stored: false, error }` on any
 server-side failure (missing secrets, unreachable Apple, failing to store the token row). Call it
 immediately after `signInWithIdToken` — Apple's code lives five minutes and works once — and never
 block the sign-in on it. One token is kept per person per audience (a later call replaces it).
-`delete-account` revokes every stored token before it deletes the account and reports
-`apple: { revoked, failed }`. The function never logs Apple's response body (on a 2xx it can carry
+`delete-account` queues and revokes every stored token before it deletes the account and reports
+`apple: { revoked, failed, pending, invalid }` (pending tokens are retried by a cron after the
+account is gone). The function never logs Apple's response body (on a 2xx it can carry
 live tokens); only Apple's status and error code reach its log.
+
+### `GET /apple-token-exchange` — revocation readiness (2026-10-12)
+
+Same auth rules as the `POST` (agent tokens and anonymous sessions refused); no body.
+`200 { "apple_identity": true, "stored": false, "clients": [{ "client": "ios" | "web", "obtained_at": "…" }] }`
+— `apple_identity`: the account carries a Sign in with Apple identity; `stored`: at least one
+refresh token is on file for revocation; `clients`: one entry per stored audience, newest
+exchange date each. `503 { error: "apple_tokens_unavailable", retryable: true }` when the table
+cannot be read. Native clients call it before `delete-account`: when `apple_identity && !stored`,
+ask the person to re-authorize with Apple and `POST` the fresh code first; if they decline or it
+fails, proceed with deletion anyway. Never retry an authorization code — it is single-use; this
+endpoint is how a client learns whether a new one is needed.
 
 ## Delete contract
 

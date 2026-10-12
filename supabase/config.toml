@@ -55,9 +55,14 @@ verify_jwt = true
 [functions.delete-account]
 verify_jwt = true
 
-# Apple authorization code → refresh token (plan 2026-10-11-google-apple-sign-in-web Task 13).
+# Apple authorization code → refresh token (plan 2026-10-11-google-apple-sign-in-web Task 13);
+# GET = revocation readiness (2026-10-12).
 [functions.apple-token-exchange]
 verify_jwt = true
+
+# Cron retry of Sign in with Apple revocations delete-account could not finish (x-cron-secret).
+[functions.apple-revocation-sweep]
+verify_jwt = false
 
 [functions.stripe-webhook]
 verify_jwt = false

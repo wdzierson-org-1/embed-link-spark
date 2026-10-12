@@ -4,8 +4,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockIn
 
 const state = vi.hoisted(() => ({
   handler: null as null | ((req: Request) => Promise<Response>),
-  user: { id: 'user-1', email: 'will@example.com' } as null | { id: string; email: string; is_anonymous?: boolean },
+  user: { id: 'user-1', email: 'will@example.com' } as null | { id: string; email: string; is_anonymous?: boolean; identities?: Array<{ provider: string }> },
   getUserTokens: [] as unknown[],
+  tokenRows: [] as Array<{ client_id: string; created_at: string }>,
+  tokenRowsError: null as null | { message: string },
   upserted: null as null | { row: Record<string, unknown>; opts: Record<string, unknown> },
   upsertError: null as null | { message: string },
   apple: { status: 200, body: { refresh_token: 'r1', access_token: 'a1', id_token: 'i1' } as Record<string, unknown> },
@@ -24,7 +26,10 @@ vi.mock('https://esm.sh/@supabase/supabase-js@2.57.2', () => ({
         return { data: { user: state.user }, error: state.user ? null : { message: 'nope' } };
       },
     },
-    from: () => ({ upsert: async (row: Record<string, unknown>, opts: Record<string, unknown>) => { state.upserted = { row, opts }; return { error: state.upsertError }; } }),
+    from: () => ({
+      upsert: async (row: Record<string, unknown>, opts: Record<string, unknown>) => { state.upserted = { row, opts }; return { error: state.upsertError }; },
+      select: () => ({ eq: async () => ({ data: state.tokenRowsError ? null : state.tokenRows, error: state.tokenRowsError }) }),
+    }),
   }),
 }));
 
@@ -39,6 +44,9 @@ const call = (body: unknown, token: string | null = sessionJwt) =>
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: typeof body === 'string' ? body : JSON.stringify(body),
   }));
+// Readiness (2026-10-12): the same endpoint answers GET with what deletion will have to revoke.
+const readiness = (token: string | null = sessionJwt) =>
+  state.handler!(new Request('https://x/apple-token-exchange', { method: 'GET', headers: token ? { Authorization: `Bearer ${token}` } : {} }));
 
 // Everything the function sent to console.warn, as one string (so a test never depends on how the args are split).
 let warn: MockInstance<typeof console.warn>;
@@ -66,6 +74,8 @@ beforeAll(async () => {
 beforeEach(() => {
   state.user = { id: 'user-1', email: 'will@example.com' };
   state.getUserTokens = [];
+  state.tokenRows = [];
+  state.tokenRowsError = null;
   state.upserted = null;
   state.upsertError = null;
   state.appleForm = null;
@@ -190,5 +200,61 @@ describe('apple-token-exchange', () => {
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(await res.json()).toEqual({ stored: false, error: state.fetchError.message });
     expect(state.upserted).toBeNull();
+  });
+});
+
+describe('apple-token-exchange — GET readiness (2026-10-12)', () => {
+  it('keeps the same gates as the POST: no token, agent token, dead session, anonymous', async () => {
+    expect((await readiness(null)).status).toBe(401);
+    expect((await readiness(agentJwt)).status).toBe(403);
+    state.user = null;
+    expect((await readiness()).status).toBe(401);
+    state.user = { id: 'anon-1', email: '', is_anonymous: true };
+    expect((await readiness()).status).toBe(403);
+    expect(state.fetchCount).toBe(0); // readiness never talks to Apple
+  });
+
+  it('tells a Sign in with Apple account that nothing is stored yet (native re-authorizes first)', async () => {
+    state.user = { id: 'user-1', email: 'will@example.com', identities: [{ provider: 'apple' }] };
+    const res = await readiness();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(await res.json()).toEqual({ apple_identity: true, stored: false, clients: [] });
+    expect(state.fetchCount).toBe(0);
+  });
+
+  it('maps stored audiences to ios/web with their exchange dates, and never returns a token', async () => {
+    state.user = { id: 'user-1', email: 'will@example.com', identities: [{ provider: 'email' }, { provider: 'apple' }] };
+    state.tokenRows = [
+      { client_id: 'it.gostash.stash', created_at: '2026-10-12T19:00:00+00:00' },
+      { client_id: 'it.gostash.web', created_at: '2026-10-11T19:00:00+00:00' },
+    ];
+    const body = await (await readiness()).json();
+    expect(body).toEqual({
+      apple_identity: true,
+      stored: true,
+      clients: [
+        { client: 'ios', obtained_at: '2026-10-12T19:00:00+00:00' },
+        { client: 'web', obtained_at: '2026-10-11T19:00:00+00:00' },
+      ],
+    });
+    expect(JSON.stringify(body)).not.toMatch(/refresh|r1/);
+  });
+
+  it('is all-false for a password-only account', async () => {
+    expect(await (await readiness()).json()).toEqual({ apple_identity: false, stored: false, clients: [] });
+  });
+
+  it('answers 503 retryable when the token table cannot be read', async () => {
+    state.tokenRowsError = { message: 'connection reset' };
+    const res = await readiness();
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'apple_tokens_unavailable', retryable: true });
+  });
+
+  it('still refuses other methods', async () => {
+    const res = await state.handler!(new Request('https://x/apple-token-exchange', { method: 'PUT', headers: { Authorization: `Bearer ${sessionJwt}` } }));
+    expect(res.status).toBe(405);
+    expect(await res.json()).toEqual({ error: 'GET or POST only' });
   });
 });
