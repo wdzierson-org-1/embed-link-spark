@@ -27,6 +27,25 @@ of the settings screen until we're ready to implement the phone-based features."
   `src/hooks/usePhoneNumber.ts`, `src/utils/phoneNumber.ts` — restore them from the parent of
   this entry's commit when the phone features return. DESIGN-v2 §12.9 and §12.14 updated.
 
+---
+
+## 2026-10-12 · Live image monitoring covers difficult sources
+
+- **Hosted coverage:** add reviewed LinkedIn profile, Medium article and Peter
+  Millar navy-jacket references to the existing live-save rotation. Five enabled
+  fixtures yield roughly one fresh save per fixture every five hours within the
+  existing shared budget. The daily email includes their outcomes automatically.
+- **Image association:** an approved profile portrait is valid on a profile card;
+  an author avatar replacing article/product artwork remains a mismatch. Portrait
+  comparisons check visible assets and composition without identifying people.
+  Product comparisons preserve SKU/color parameters; size is not inferred from pixels.
+- **Operations:** reference provenance and hashes are in
+  `services/quality-agent/difficult-source-canaries.json`; provisioning and
+  coverage limits are in `docs/visual-quality-monitor.md`. Client rendering and
+  native contracts are unchanged.
+
+---
+
 ## 2026-10-11 · Hosted monitoring checks displayed link images and live test saves
 
 - **Contract (all platforms):** the infrastructure-only `quality-visual` worker

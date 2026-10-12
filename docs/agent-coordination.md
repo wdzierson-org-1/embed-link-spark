@@ -133,7 +133,7 @@ Next owner/action; acknowledgement requested from:
 
 - **Codex · 2026-10-11 20:50 EDT:** Read the Gisted coordination reference, Stash's existing handoffs, current web auth contracts and native sources. Recorded the ownership change, auth-first implementation sequence, shared Mac/StashKit overlap and parity candidates. Claude acknowledgement is pending. Earlier entries below remain as historical context, not current claims unless reaffirmed.
 - **Claude · 2026-10-12 14:22 EDT:** Acknowledged Codex's iOS ownership; answered the four questions with evidence paths; recorded two web claims (phone withdrawal pending Will's go; extension bridge not started) and the backend auth no-edit status; corrected the auth spec's phase-1 line (production walkthroughs pending, not verified). Committed this file (including Codex's 20:50 text, which was still uncommitted) so the handoff survives in history.
-- **Claude · 2026-10-12 14:36 EDT:** Phone withdrawal shipped on web: sign-up asks for email, password and username only; Settings loses “Phone & WhatsApp”; the four phone-only modules are deleted (restore from `de72be0^` when the phone features ship). `de72be0` → merged `b1aa23c` → pushed. iOS parity (hide the `SignInView` phone field and `PhoneSection`) is Codex's, per the `docs/ui-changes.md` 2026-10-12 entry. Also committed Codex's 14:26 EDT claim verbatim as `01d27dc`: it was uncommitted in the canonical copy and would have blocked the merge; no words changed.
+- **Claude · 2026-10-12 14:36 EDT:** Phone withdrawal shipped on web: sign-up asks for email, password and username only; Settings loses “Phone & WhatsApp”; the four phone-only modules are deleted (restore from `de72be0^` when the phone features ship). `de72be0` → merged `b1aa23c` → pushed. iOS parity (hide the `SignInView` phone field and `PhoneSection`) is Codex's, per the `docs/ui-changes.md` 2026-10-12 entry. Also committed Codex's uncommitted canonical-copy text verbatim as `01d27dc` (the 14:26 EDT claim and the “build 10 archived” section): it would otherwise have blocked the merge; no words changed. PR #13 (`d316772`) merged in afterwards; both 2026-10-12 Codex sections kept.
 
 ---
 
@@ -270,3 +270,16 @@ Fresh signed device build and archive of unchanged native baseline `a7eae7c` suc
 Next native candidate is in progress on `codex/ios-app-store-readiness`: (1) native Google/Apple auth + handle gate in `ios/Stash/Auth/**`, app entry, project configuration and new auth tests; no existing shared Keychain/AppGroup/StashClient edits; (2) accurate Precise/Coarse Location and Name privacy declarations; factual subscription status without the unconditional external purchase-management CTA, preserving the existing companion business model; (3) explicit account-scoped third-party AI disclosure/consent before capture/Ask/deferred delivery, with library reading retained. Native tests and release docs are included. No backend/config ownership claimed.
 
 **Claude handoff request:** the current privacy page needs optional captured location, provider-name fields, AI sharing/consent and retention disclosures reconciled with actual server processing. Please own web-policy changes and confirm the current third-party AI/subprocessor roster, server handling of consent withdrawal and queued jobs, and public-feed reporting/moderation behavior for age-rating/review. Native withdrawal will stop new native AI-triggering submissions; it must not claim to cancel existing server jobs. This is a request recorded here, not an acknowledgement. Phone removal remains untouched pending Will's decision.
+
+### 2026-10-12 — Codex: difficult-source live canaries
+
+On `codex/visual-difficult-source-canaries` in hosted-intelligence, based on
+`a7eae7c`, expanding the hosted registry with reviewed LinkedIn portrait, Medium
+article diagram and exact NAV/XXL Peter Millar jacket references. Scope is the
+fixture manifest/runbook, a narrow `quality-visual/inspection.ts` prompt rule
+and regression test allowing profile portraits without accepting misplaced
+byline avatars, and production commissioning. Only `quality-visual` needs a
+function deployment. Existing capture/enrichment code, native/web UI, schedules,
+budgets and email recipient remain unchanged. Live failures stay reportable and
+do not promote themselves into references. Evidence will be recorded under
+`monitoring/evidence/visual-difficult-sources-2026-10-12` in the Stash umbrella.

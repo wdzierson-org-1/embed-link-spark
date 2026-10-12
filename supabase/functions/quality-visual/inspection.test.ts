@@ -75,6 +75,21 @@ describe('displayed image inspection and approved reference comparisons', () => 
     expect(JSON.stringify(body)).not.toContain('SECRET_CREDENTIAL'); expect(JSON.stringify(body)).not.toContain(storage); expect(JSON.stringify(body)).not.toContain(item.url);
     expect(result.checks[0].comparison.summary).toMatch(/^Model assessment:/);
   });
+  it('distinguishes approved profile portrait assets from misplaced byline avatars without identifying people', async () => {
+    const fetcher = vi.fn().mockImplementation(async target => target.includes('api.openai.com')
+      ? response('match', .96, { summary: 'The delivered image has the approved portrait composition and background.' }) : image(webp, 'image/webp'));
+    const deps = dependencies(fetcher);
+    const portrait = { ...reference, id: 'linkedin-profile', description: 'Approved profile portrait asset: a square head-and-shoulders composition against a plain blue background.' };
+    await inspectVisuals({ item: { ...item, url: 'https://www.linkedin.com/in/example-profile/', title: 'Professional profile',
+      page_body: 'Professional profile with a head-and-shoulders profile photo.' }, surfaces: [surface()], reference: portrait }, deps);
+    const [, init] = fetcher.mock.calls.find(call => call[0].includes('api.openai.com'))!;
+    const body = JSON.parse(init.body);
+    const instructions = body.messages[1].content.find((part: any) => part.type === 'text').text;
+    expect(instructions).toContain('An approved profile portrait is valid for a profile card.');
+    expect(instructions).toContain('A byline avatar substituted for article artwork or a product image is a mismatch.');
+    expect(instructions).toContain(portrait.description);
+    expect(body.messages[0].content).toContain('For portraits, compare the image asset and composition; do not identify a person or decide whether different portraits show the same person.');
+  });
   it.each([['match', .84], ['mismatch', .84], ['uncertain', .99]])('retains uncertainty for %s at confidence %s', async (judgment, confidence) => {
     const deps = dependencies(vi.fn().mockImplementation(async target => target.includes('api.openai.com') ? response(judgment as string, confidence as number) : image(webp, 'image/webp')));
     const result = await inspectVisuals({ item, surfaces: [surface()], reference }, deps);
