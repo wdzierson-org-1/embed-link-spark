@@ -8,6 +8,25 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-12 · Phone capture withdrawn until the phone-based features ship
+
+Will: "remove the phone number requirement from the sign up page for now and also take it off
+of the settings screen until we're ready to implement the phone-based features."
+
+- **Contract (all platforms):** no client asks for or shows a phone number for now. The sign-up
+  form is email · password · username (plus the Google/Apple pair); Settings has no "Phone &
+  WhatsApp" section. Nothing changes server-side: `user_phone_numbers`, the `twilio-webhook`
+  function and WhatsApp/SMS intake for numbers already registered keep working, and
+  `delete-account` still unlinks a number. A stale `/settings#phone` link falls back to the first
+  section.
+- **iOS (Codex):** hide the sign-up phone field (`SignInView`) and the Settings `PhoneSection` the
+  same way; keep the data model and any `PhoneNumber` helpers other code still uses.
+- **Web:** `src/pages/Auth.tsx` (field, live uniqueness probe and `registerPhoneNumber` removed),
+  `src/pages/Settings.tsx` (section removed; the index renumbers `01`–`04`); deleted
+  `src/components/PhoneNumberSetup.tsx`, `src/components/WhatsAppInfo.tsx`,
+  `src/hooks/usePhoneNumber.ts`, `src/utils/phoneNumber.ts` — restore them from the parent of
+  this entry's commit when the phone features return. DESIGN-v2 §12.9 and §12.14 updated.
+
 ## 2026-10-11 · Hosted monitoring checks displayed link images and live test saves
 
 - **Contract (all platforms):** the infrastructure-only `quality-visual` worker

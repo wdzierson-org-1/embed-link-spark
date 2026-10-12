@@ -13,7 +13,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useEffect } from 'react';
-import { usePhoneNumber } from '@/hooks/usePhoneNumber';
 import { supabase } from '@/integrations/supabase/client';
 
 // The person's line and the machine's prompt, per view
@@ -29,10 +28,8 @@ const Auth = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [usernameError, setUsernameError] = useState('');
-  const [phoneError, setPhoneError] = useState('');
   const [searchParams] = useSearchParams();
 
   // Get URL parameters for return flow. `mode=reset` (extension + iOS deep
@@ -48,7 +45,6 @@ const Auth = () => {
   const [nameHint, setNameHint] = useState<string | null>(null);
 
   const { signIn, signUp, signInWithIdToken, user, handle, refreshHandle } = useAuth();
-  const { registerPhoneNumber } = usePhoneNumber();
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -109,48 +105,17 @@ const Auth = () => {
     setUsernameError((await isUsernameTaken(username)) ? 'that username is taken. try another.' : '');
   };
 
-  const checkPhoneUniqueness = async (phone: string) => {
-    if (!phone || phone.trim().length === 0) {
-      setPhoneError('');
-      return;
-    }
-    
-    const cleanPhone = phone.replace(/\D/g, '');
-    if (cleanPhone.length === 0) return;
-    
-    const { data, error } = await supabase
-      .from('user_phone_numbers')
-      .select('phone_number')
-      .eq('phone_number', cleanPhone)
-      .single();
-    
-    if (error && error.code !== 'PGRST116') {
-      console.error('Error checking phone:', error);
-      return;
-    }
-    
-    if (data) {
-      setPhoneError('that number is already on an account. use another.');
-    } else {
-      setPhoneError('');
-    }
-  };
-
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Reset errors
     setUsernameError('');
-    setPhoneError('');
-    
+
     // Validate uniqueness before proceeding
     await checkUsernameUniqueness(username);
-    if (phoneNumber.trim()) {
-      await checkPhoneUniqueness(phoneNumber);
-    }
-    
+
     // Check if there are validation errors
-    if (usernameError || phoneError) {
+    if (usernameError) {
       return;
     }
     
@@ -165,11 +130,6 @@ const Auth = () => {
         variant: "destructive",
       });
     } else {
-      // If phone number was provided, register it
-      if (phoneNumber.trim()) {
-        await registerPhoneNumber(phoneNumber);
-      }
-      
       toast({
         title: "Account created!",
         description: "You've been signed up successfully.",
@@ -427,38 +387,7 @@ const Auth = () => {
                   </p>
                 )}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="signup-phone">
-                  Phone <span className="font-normal text-muted-foreground">(optional)</span>
-                </Label>
-                <Input
-                  id="signup-phone"
-                  type="tel"
-                  placeholder="+1 555 010 0100"
-                  autoComplete="tel"
-                  value={phoneNumber}
-                  onChange={(e) => {
-                    setPhoneNumber(e.target.value);
-                    if (e.target.value.trim()) {
-                      checkPhoneUniqueness(e.target.value);
-                    } else {
-                      setPhoneError('');
-                    }
-                  }}
-                  aria-invalid={Boolean(phoneError)}
-                  aria-describedby={phoneError ? 'signup-phone-error' : undefined}
-                  className={`${field} ${phoneError ? 'v2:border-error' : ''}`}
-                />
-                {phoneError ? (
-                  <FieldError id="signup-phone-error">{phoneError}</FieldError>
-                ) : (
-                  <p className="text-[13px] leading-snug text-muted-foreground">
-                    Add your phone number to use WhatsApp for sending notes, voice messages, and asking questions
-                    about your content.
-                  </p>
-                )}
-              </div>
-              <SubmitButton busy={loading} busyLabel="creating your stash…" disabled={!!usernameError || !!phoneError}>
+              <SubmitButton busy={loading} busyLabel="creating your stash…" disabled={!!usernameError}>
                 Create account
               </SubmitButton>
             </form>
