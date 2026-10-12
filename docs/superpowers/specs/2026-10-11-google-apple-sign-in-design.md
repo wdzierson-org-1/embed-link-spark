@@ -481,7 +481,7 @@ not-installed, failed (`lastError`), connected. `nonce.ts`, `extensionBridge.ts`
 - *Chrome Web Store:* none required — the key pair in §7 is generated locally; the eventual store
   upload inherits the id from the manifest's `key`.
 
-**Phase 1 — backend + web + docs.** Migration applied and recorded; config PATCH + read-back;
+**Phase 1 — backend + web + docs.** **SHIPPED 2026-10-11** (main `5d8de151`, Vercel live; `apple-token-exchange` v2, `delete-account` v25; the provider walks on production and the `mailer_autoconfirm` decision remain open). Migration applied and recorded; config PATCH + read-back;
 web change on this branch (`/auth` pair, nonce, handle step, gates, copy); DESIGN-v2 §12.14,
 `ui-changes.md`, `PLATFORM_API.md`, `config.toml`. Merge → push → Vercel. Verified on prod with
 the §11 provider walks.
