@@ -6,6 +6,7 @@ import { requireEntitlement } from '../_shared/entitlementGate.ts';
 import { cleanMetaText, cleanOptionalMetaText, cleanOptionalMetaTitle, decodeHtmlEntities } from '../_shared/textHygiene.ts';
 import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
 import { isBlockedPageTitle, verifyRemoteImage } from '../_shared/blockedContentFallbacks.ts';
+import { isReactionImage } from '../_shared/pagePreview.ts';
 import { resolveYouTubeLink } from '../_shared/youtube.ts';
 import { resolveTikTokLink } from '../_shared/tiktok.ts';
 import { creatorEvidence } from '../_shared/socialEnrichment.ts';
@@ -59,8 +60,8 @@ const extractMetaFromHtml = (html: string) => {
                      parseMetaContent(cleanHtml, 'twitter:description') || 
                      parseMetaContent(cleanHtml, 'description');
 
-  const image = parseMetaContent(cleanHtml, 'og:image') || 
-               parseMetaContent(cleanHtml, 'twitter:image');
+  const image = [parseMetaContent(cleanHtml, 'og:image'), parseMetaContent(cleanHtml, 'twitter:image')]
+    .find(value => value && !isReactionImage(value));
 
   const siteName = parseMetaContent(cleanHtml, 'og:site_name') || 
                   parseMetaContent(cleanHtml, 'twitter:domain');
@@ -74,7 +75,7 @@ const extractMetaFromHtml = (html: string) => {
 };
 
 const downloadAndStoreImage = async (imageUrl: string, userId: string, supabase: any): Promise<string | null> => {
-  if (!userId || !imageUrl) return null;
+  if (!userId || !imageUrl || isReactionImage(imageUrl)) return null;
   
   try {
     console.log('Downloading image from:', imageUrl);
@@ -523,11 +524,17 @@ Deno.serve(async (req) => {
             }
             // Prefer the copy we stored in our own bucket; a raw external URL is
             // last resort and only when it verifiably serves an image right now
-            let bestImage = deepMeta.previewImagePath || deepMeta.previewImagePublicUrl || null;
+            let bestImage = [deepMeta.previewImagePath, deepMeta.previewImagePublicUrl]
+              .find(value => typeof value === 'string' && value && !isReactionImage(value)) || null;
             if (!bestImage && deepMeta.image && await verifyRemoteImage(deepMeta.image)) {
               bestImage = deepMeta.image;
             }
-            if (!current.file_path && bestImage) {
+            // A known remote reaction is a rejected preview, not a reason to
+            // keep the real article image out. Preserve all valid/user images;
+            // the snapshot RPC also enforces concurrent edits and protection.
+            const replaceableImage = !current.file_path ||
+              (/^https?:\/\//i.test(current.file_path) && isReactionImage(current.file_path));
+            if (replaceableImage && !current.attributes?.enrichment?.protected_fields?.file_path && bestImage) {
               updates.file_path = bestImage;
             }
             if (Object.keys(updates).length > 0) {

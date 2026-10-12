@@ -6,11 +6,15 @@
 //      article; beats Medium and most JS-walled content. Free, no key needed.
 //   4. Wayback Machine — last resort, serves the most recent public snapshot.
 
+import { isReactionImage, previewImageCandidates } from './pagePreview.ts';
+
 export interface ExtractedPage {
   title?: string;
   description?: string;
   content?: string;
   image?: string;
+  /** Explicit publisher Open Graph/Twitter image, distinct from the reader's image inventory. */
+  publisherImage?: string;
   source: string;
 }
 
@@ -133,6 +137,23 @@ export const fetchViaJinaReader = async (
       image = content.match(/!\[[^\]]*\]\((https?:[^)\s]+)/)?.[1];
     }
 
+    // Reader text may contain only forum replies while publisher metadata still
+    // names the article cover. Do not confuse that with the first inventory image
+    // (often a logo), or attribute a redirected sign-in page's art to the source.
+    const responseUrl = typeof data.url === 'string' ? new URL(data.url) : null;
+    const requestedUrl = new URL(url);
+    if (responseUrl) responseUrl.hash = '';
+    requestedUrl.hash = '';
+    const publisherImage = responseUrl?.href === requestedUrl.href
+      ? ['og:image:secure_url', 'og:image', 'twitter:image', 'twitter:image:src']
+        .flatMap(key => {
+          const value = data.metadata?.[key];
+          const values = Array.isArray(value) ? value.slice(0, 5) : [value];
+          return values.flatMap(candidate => typeof candidate === 'string' && !/[\s<>\\]/.test(candidate)
+            ? previewImageCandidates({ url, text: content, publisherImage: candidate }).filter(image => image === candidate) : []);
+        })[0]
+      : undefined;
+
     return {
       title: title || undefined,
       description: typeof data.description === 'string' && data.description.trim()
@@ -140,6 +161,7 @@ export const fetchViaJinaReader = async (
         : undefined,
       content: content.length >= 100 ? content : undefined,
       image,
+      publisherImage,
       source: 'jina-reader',
     };
   } catch {
@@ -197,7 +219,7 @@ export const verifyRemoteImage = async (
   imageUrl: string | null | undefined,
   timeoutMs = 8_000
 ): Promise<boolean> => {
-  if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) return false;
+  if (!imageUrl || !/^https?:\/\//i.test(imageUrl) || isReactionImage(imageUrl)) return false;
   try {
     const response = await fetch(imageUrl, {
       headers: {

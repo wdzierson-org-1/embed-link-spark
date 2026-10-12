@@ -42,10 +42,22 @@ jobs:
           src/utils/objectInteractions.test.ts
           src/utils/captureClient.test.ts
           src/components/edit/ObjectIntelligenceSection.test.tsx
+          supabase/functions/_shared/pagePreview.test.ts
+          supabase/functions/_shared/blockedContentFallbacks.test.ts
+          supabase/functions/_shared/enrichmentQuality.test.ts
+          supabase/functions/extract-link-metadata/index.test.ts
           supabase/functions/_shared/socialEnrichment.test.ts
           supabase/functions/_shared/tiktok.test.ts
           supabase/functions/add-url/index.test.ts
           supabase/functions/scrape-page-content/index.test.ts
+      - name: Verify hosted visual monitoring and delivery contracts
+        run: >-
+          node node_modules/vitest/vitest.mjs run
+          supabase/functions/quality-visual
+          supabase/functions/image-proxy/index.test.ts
+          supabase/functions/quality-worker/imageEvidence.test.ts
+          supabase/functions/quality-dispatch/report.test.ts
+          supabase/functions/quality-dispatch/handler.test.ts
       - name: Save per-case evaluation results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

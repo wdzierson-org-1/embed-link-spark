@@ -8,6 +8,47 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-11 · Hosted monitoring checks displayed link images and live test saves
+
+- **Contract (all platforms):** the infrastructure-only `quality-visual` worker
+  wakes every five minutes and queues one real-save sample plus one live test save
+  per hour. This first release monitors link previews. Uploaded images/documents,
+  video frames and embedded-player pixels remain outside its coverage.
+- **Display evidence:** library cards and detail panels have separate results.
+  Checks use the selected stored preview or actual remote-image delivery route;
+  repository plates and playable embeds are identified as non-image displays.
+  Recorded evidence includes delivery/source URLs, timestamp, raster metadata and
+  byte hash. This does not certify browser rendering, cropping or iframe contents.
+- **Known-good comparisons:** immutable reference IDs/versions distinguish exact
+  byte matches from model-assessed subject correspondence. Suspected mismatches,
+  missing images, delivery failures and inconclusive assessments remain distinct.
+  An unchecked surface is never a pass; a changing source cannot silently replace
+  its own reference.
+- **Live test saves:** a dedicated private monitoring account uses the normal
+  authenticated capture pipeline with durable capture receipts. Retries reuse the
+  same save. Canary jobs are separate from user-save metrics and their registered
+  transient items/assets are cleaned up. No real save is automatically repaired
+  and no playbook or baseline is automatically promoted.
+- **Daily email:** adds visual findings, source/surface and reference provenance,
+  canary run counts and explicit coverage limits. Other-account details remain
+  redacted. Delivery stays after 09:00 America/New_York for the previous local day.
+  Zero completed checks means unknown accuracy, not a clean bill of health.
+- **Implementation:** `supabase/functions/quality-visual/`,
+  `quality-dispatch/report.ts`, and the hosted visual monitoring section of
+  `docs/PLATFORM_API.md`. No new client call or native UI is required.
+
+---
+
+## 2026-10-11 · Forum reactions cannot become link previews
+
+- **Contract (all platforms):** known Discourse emoji/reaction URLs are rejected during preview selection, quick capture downloads, and deep metadata. A previously saved remote reaction may be replaced by a verified article image through the existing snapshot and protected-field write guard. User-selected images and valid previews remain preserved.
+- **Reader fallback:** when readable text loses the original post, the requested page's explicit Open Graph/Twitter image can supply its cover. The reader's unordered image inventory is not treated as publisher metadata. Missing image evidence still yields a limited preview.
+- **Quality dashboard:** link assessments now report `invalid_preview` and `card_usable: false` for known remote reaction assets. Usable article text remains indexed. No broad reclassification of saved images, no quality-version bump or automatic historical replay.
+- **Limits:** this is deterministic URL/markup validation, not a visual similarity judge. Hosted text audits still need displayed-asset evidence before they can judge arbitrary incorrect pictures. Added the reported forum failure and correct-cover control to the release gate.
+- **Implementation:** `_shared/pagePreview.ts`, `_shared/blockedContentFallbacks.ts`, `_shared/enrichmentQuality.ts`, `extract-link-metadata`, `add-url`. No native or web rendering changes are needed.
+
+---
+
 ## 2026-10-11 · Google and Apple sign-in; generated handles confirmed once
 
 Will: "let's get google and apple sign up implemented." Spec:

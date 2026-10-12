@@ -1,6 +1,7 @@
 import { readObjectFacts, objectFactsSearchText } from './objectFacts.ts';
 import { placeSearchText, readPlace } from './place.ts';
 import { noteImagesSearchText, readNoteImages } from './noteImages.ts';
+import { isReactionImage } from './pagePreview.ts';
 
 /** Versioned, deterministic checks. A quality score is evidence coverage, not a factuality guarantee. */
 export const QUALITY_VERSION = '2026-09-23.1';
@@ -137,8 +138,13 @@ export function assessEnrichment(item: EnrichmentItem, indexed?: boolean): Quali
   if (!descriptionUsable) reasons.push('placeholder_description');
   if (indexed === false) reasons.push('missing_index');
   if (indexed === undefined) reasons.push('unverified_index');
+  // Check identifiable remote reactions only. Owned upload paths and saved
+  // image objects are user content, and absent previews retain their prior policy.
+  const invalidPreview = item.type === 'link' && typeof item.file_path === 'string' &&
+    /^https?:\/\//i.test(item.file_path) && isReactionImage(item.file_path);
+  if (invalidPreview) reasons.push('invalid_preview');
   const completeEvidence = usable && !reasons.some(r => r === 'missing_media_evidence' || r === 'missing_visual_evidence');
-  const card = titleUsable && descriptionUsable;
+  const card = titleUsable && descriptionUsable && !invalidPreview;
   return {
     version: QUALITY_VERSION, source: identity.source, kind: identity.kind, source_key: identity.key,
     status: unsupported ? 'unsupported' : rejected ? 'blocked' : completeEvidence && card && indexed === true ? 'ready' : 'partial',
