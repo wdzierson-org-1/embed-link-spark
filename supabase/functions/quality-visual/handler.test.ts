@@ -28,14 +28,15 @@ const inspection = { schema_version: 1 as const, checked_at: new Date(NOW).toISO
 const request = (body: unknown = {}) => new Request('https://backend.example/quality-visual', {
   method: 'POST', headers: { 'x-cron-secret': values.CRON_SECRET }, body: JSON.stringify(body),
 });
-function setup(options: { env?: Record<string, string | undefined>; job?: any; item?: any; cleanup?: any[] } = {}) {
+function setup(options: { env?: Record<string, string | undefined>; job?: any; item?: any; cleanup?: any[]; orphans?: any[] } = {}) {
   const state = { job: options.job === undefined ? structuredClone(claimed) : options.job,
-    item: options.item === undefined ? structuredClone(item) : options.item, cleanup: options.cleanup ?? [] };
+    item: options.item === undefined ? structuredClone(item) : options.item, cleanup: options.cleanup ?? [], orphans: options.orphans ?? [] };
   const query = { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), maybeSingle: vi.fn(async () => ({ data: state.item, error: null })) };
   const bucket = { download: vi.fn(async () => ({ data: new Blob(['image']), error: null })), remove: vi.fn(async () => ({ data: [], error: null })) };
   const db = {
-    rpc: vi.fn(async (name: string) => ({ data:
+    rpc: vi.fn(async (name: string, _args?: Record<string, unknown>) => ({ data:
       name === 'claim_hosted_visual_job' ? state.job : name === 'list_hosted_visual_cleanup' ? state.cleanup :
+      name === 'list_hosted_visual_orphans' ? state.orphans :
       name === 'hosted_visual_preview_referenced' ? false : name === 'enqueue_hosted_visual_jobs' ? 1 : true, error: null })),
     from: vi.fn(() => query), storage: { from: vi.fn(() => bucket) },
   };
@@ -201,6 +202,46 @@ describe('hosted visual monitor handler', () => {
       ? [{ job_id: JOB, owner_id: OWNER, item_id: ITEM, file_path: item.file_path, is_public: false, settled: true }] : true, error: null }));
     await handle(request());
     expect(bucket.remove).not.toHaveBeenCalled();
+  });
+
+  it('removes at most twenty old generated monitor previews after rechecking references, even while disabled', async () => {
+    const orphans = Array.from({ length: 23 }, (_, i) => ({ file_path: `${OWNER}/previews/preview_${1000 + i}.jpeg` }));
+    const { handle, db, bucket, inspect } = setup({ env: { QUALITY_VISUAL_ENABLED: 'false' }, orphans });
+    expect(await (await handle(request())).json()).toMatchObject({ status: 'disabled', cleanup: { orphans_removed: 20 } });
+    expect(db.rpc).toHaveBeenCalledWith('list_hosted_visual_orphans', {});
+    expect(db.rpc.mock.calls.filter(([name]) => name === 'hosted_visual_preview_referenced')).toHaveLength(20);
+    expect(bucket.remove).toHaveBeenCalledExactlyOnceWith(orphans.slice(0, 20).map(row => row.file_path));
+    expect(inspect).not.toHaveBeenCalled();
+  });
+
+  it('keeps foreign, non-preview and newly referenced orphan candidates', async () => {
+    const referenced = `${OWNER}/previews/preview_12345.jpeg`;
+    const { handle, db, bucket } = setup({ env: { QUALITY_VISUAL_ENABLED: 'false' }, orphans: [
+      { file_path: `${USER}/previews/preview_12.jpeg` }, { file_path: `${OWNER}/previews/../baseline.jpeg` },
+      { file_path: `${OWNER}/baseline.jpeg` }, { file_path: referenced },
+    ] });
+    const original = db.rpc.getMockImplementation()!;
+    db.rpc.mockImplementation(async (name, args) => name === 'hosted_visual_preview_referenced'
+      ? { data: true, error: null } : original(name, args));
+    const result = await (await handle(request())).json();
+    expect(result.cleanup).toMatchObject({ orphans_removed: 0, pending: 4 });
+    expect(db.rpc).toHaveBeenCalledWith('hosted_visual_preview_referenced', { preview_path: referenced });
+    expect(bucket.remove).not.toHaveBeenCalled();
+  });
+
+  it('keeps orphan cleanup pending on failed reference lookups or storage removals', async () => {
+    const orphan = { file_path: `${OWNER}/previews/preview_12345.jpeg` };
+    for (const failAt of ['reference', 'storage']) {
+      const { handle, db, bucket } = setup({ env: { QUALITY_VISUAL_ENABLED: 'false' }, orphans: [orphan] });
+      if (failAt === 'reference') {
+        const original = db.rpc.getMockImplementation()!;
+        db.rpc.mockImplementation(async (name, args) => name === 'hosted_visual_preview_referenced'
+          ? { data: null, error: { message: 'database down' } } : original(name, args));
+      } else bucket.remove.mockResolvedValue({ data: null, error: { message: 'storage down' } } as any);
+      const result = await (await handle(request())).json();
+      expect(result.cleanup).toMatchObject({ orphans_removed: 0, pending: 1 });
+      if (failAt === 'reference') expect(bucket.remove).not.toHaveBeenCalled();
+    }
   });
 
   it('sanitizes exceptions and never exposes credentials or captured text', async () => {
