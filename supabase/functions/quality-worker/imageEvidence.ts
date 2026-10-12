@@ -156,6 +156,22 @@ async function readImage(response: Response, signal: AbortSignal): Promise<Uint8
   return bytes;
 }
 
+/** Shared structural preflight for visual monitoring. This validates format and
+ * dimensions, not complete pixel decoding; a vision comparison or approved-byte
+ * match is a separate result. Omitted MIME is only for trusted reference bytes. */
+export function inspectRasterBytes(bytes: Uint8Array, mime?: string): { mime_type: string; width: number; height: number; byte_length: number } {
+  if (!bytes.byteLength) throw new ImageError('empty_image');
+  if (bytes.byteLength > MAX_BYTES) throw new ImageError('image_too_large');
+  const detected = starts(bytes, [0xff, 0xd8, 0xff]) ? 'image/jpeg' : starts(bytes, [137, 80, 78, 71, 13, 10, 26, 10]) ? 'image/png' :
+    starts(bytes, [82, 73, 70, 70]) && starts(bytes, [87, 69, 66, 80], 8) ? 'image/webp' : null;
+  if (!detected) invalid();
+  if (mime !== undefined && detected !== mime) throw new ImageError('image_mime_mismatch');
+  const [width, height] = detected === 'image/png' ? pngDimensions(bytes) : detected === 'image/jpeg' ? jpegDimensions(bytes) : webpDimensions(bytes);
+  if (width < 100 || height < 60) throw new ImageError('image_too_small');
+  if (width > 12000 || height > 12000 || width * height > 20_000_000) throw new ImageError('image_dimensions_excessive');
+  return { mime_type: detected, width, height, byte_length: bytes.byteLength };
+}
+
 /** Check one source-associated candidate, allowing at most five seconds and 5 MiB.
  * Fixed trusted CDN hosts prevent arbitrary DNS egress. Every redirect is refused;
  * no authorization, cookies, provider credentials or source headers are forwarded. */

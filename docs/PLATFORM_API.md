@@ -32,6 +32,80 @@ when the profile still shows the server fallback — the full contract is in `do
 2026-10-11. Read `user_profiles.handle_confirmed`: when false, show the one-time handle step before
 the app.
 
+## Hosted visual accuracy monitoring
+
+`quality-visual` is an infrastructure endpoint, scheduled independently of the
+Hermes text auditor every five minutes. The first release queues one real-save
+sample and one live canary save per hour. Work, leases, results and reference
+versions belong to Stash infrastructure; no local Codex process is required.
+This is bounded sampling of **links**, not continuous inspection of every save.
+Other object types and embedded-player pixels are explicitly unsupported in this
+release and must not be counted as passing checks.
+
+### Displayed-image evidence
+
+The monitor resolves the same initial image routes selected by the web UI:
+
+- A library link card uses its stored `file_path` through public `stash-media`,
+  or its remote `file_path` through the image proxy. Repository cards use a
+  generated plate and have no cover image to compare.
+- A detail panel uses the public storage address or the remote image directly.
+  A recognized playable embed replaces that image in the panel. Its canonical
+  source follows the same precedence as the web: `attributes.link.canonical_url`,
+  then `attributes.enrichment.evidence.canonical_url`, then `url`.
+- Card and detail deliveries are separate checks, even when they refer to the
+  same original image. A successful publisher image request is not proof that
+  Stash's delivery route succeeds.
+
+Each check records the surface, display mode, selected source/delivery URLs,
+timestamp, outcome and reason. Retrieved raster evidence includes MIME type,
+dimensions, byte length and SHA-256. Approved-reference comparisons also retain
+reference ID, immutable version and hash. Byte equality is `exact_match`;
+`match`/`mismatch` are model assessments with a recorded method, model and
+confidence, not independently verified facts. Low-confidence or insufficient
+evidence remains `inconclusive`. `missing_image`, `unavailable` and `unsupported`
+are distinct; neither transport failure nor an unchecked image is a success.
+
+Image fetching is bounded and restricted to approved public destinations or the
+sample owner's storage prefix. URLs resolve display intent, not permission to
+fetch an arbitrary target. Model requests receive fetched image bytes and a
+bounded source excerpt, not browser sessions or storage credentials. The monitor
+does not certify DOM rendering, crops, animation, or iframe contents. Raster
+structure validation alone is not proof that every browser can decode the image.
+
+### Live canary saves and fixed references
+
+Canaries use a dedicated private monitoring account and the real authenticated
+`capture` → `add-url` route, including ordinary ownership and entitlement checks.
+The durable job ID is reused as `capture_id`, so retrying a lost response does not
+create another save. The coordinator waits for enrichment to settle before
+comparison; a timeout remains unknown or an operational failure, never a match.
+Canary runs are tracked separately from real-save samples and are excluded from
+user save-cohort counts. Only registered monitoring-account items and their
+unreferenced transient assets are eligible for cleanup.
+
+A canary's source identity and approved reference version are fixed for its run.
+An operator approves known-good reference bytes independently of the current
+capture. A changed reference hash invalidates the comparison; a fresh capture
+cannot promote itself into the baseline. Neither the visual monitor nor Hermes
+automatically repairs real saves, replaces references, or publishes playbooks.
+
+### Daily findings
+
+The existing daily email includes a `visual` snapshot alongside text findings:
+visual job states; surface-check counts by outcome; real-save findings; live
+canary runs and latest results; reference provenance; and explicit coverage
+limits. A zero-check window reports accuracy as unknown. Surface checks are not
+unique-item counts, and canary results are not a population failure rate.
+Detailed findings from other accounts follow the existing report allowlist;
+otherwise only aggregate counts appear in email. Reports retain the existing
+schedule: prepared after **09:00 America/New_York**, covering the previous local
+calendar day, and delivered by the next five-minute dispatcher.
+
+Contracts and tests: `supabase/functions/quality-visual/`,
+`supabase/functions/quality-dispatch/report.ts`. No client-side monitoring call or
+native rendering change is required.
+
 ## Typed publisher facts (beta)
 
 Newly enriched product and place links may include `attributes.object_facts`.
