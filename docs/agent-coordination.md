@@ -259,3 +259,16 @@ Investigating Will's Decisions API forum save on `codex/forum-preview-guard`, ba
 ### 2026-10-11 — Codex: hosted visual accuracy monitoring
 
 Will authorized implementation and deployment of actual image inspection, live test saves and known-good comparisons. Working on `codex/visual-quality-monitor` from `6e15e466` in hosted-intelligence. Scope: new `quality-visual` function and durable scheduler/jobs/baselines, `quality-dispatch` daily report, small raster-parser export, and image-proxy monitor redirect guard. Dedicated private canary account uses normal `/capture` intake. No frontend/card selection or real-user enrichment writes. Baselines are versioned and reviewed; model findings never automatically change previews or approve a new reference. Existing Hermes stays text-only; visual findings come from the bounded hosted collector. Release evidence will follow verification.
+
+### 2026-10-12 — Codex: difficult-source live canaries
+
+On `codex/visual-difficult-source-canaries` in hosted-intelligence, based on
+`a7eae7c`, expanding the hosted registry with reviewed LinkedIn portrait, Medium
+article diagram and exact NAV/XXL Peter Millar jacket references. Scope is the
+fixture manifest/runbook, a narrow `quality-visual/inspection.ts` prompt rule
+and regression test allowing profile portraits without accepting misplaced
+byline avatars, and production commissioning. Only `quality-visual` needs a
+function deployment. Existing capture/enrichment code, native/web UI, schedules,
+budgets and email recipient remain unchanged. Live failures stay reportable and
+do not promote themselves into references. Evidence will be recorded under
+`monitoring/evidence/visual-difficult-sources-2026-10-12` in the Stash umbrella.

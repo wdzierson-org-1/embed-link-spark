@@ -81,6 +81,31 @@ The collector verifies stored reference bytes against the approved hash before
 using them. Missing, oversized, corrupt or changed references produce inconclusive
 results; they cannot fall back to an apparent source-only success.
 
+### Difficult-source rotation (2026-10-12)
+
+The reviewed additions are recorded in
+[`difficult-source-canaries.json`](../services/quality-agent/difficult-source-canaries.json).
+The manifest records public source evidence and pinned hashes; the deployed
+registry and private bucket remain the runtime source of truth.
+
+| Fixture | Expected image | Regression caught |
+| --- | --- | --- |
+| `linkedin-profile-jmatus` | Approved profile portrait asset | Background banner, LinkedIn logo, sign-in page, or missing portrait |
+| `medium-whither-ontologies` | Article's first architecture diagram, verified through the exact RSS entry | Author avatar, Medium logo, unrelated artwork, or missing image |
+| `peter-millar-alpine-navy` | MF26XS49 navy hooded sweater jacket | Beige campaign coat, wrong product/color, or missing preview |
+
+Keep the jacket's full NAV/XXL query parameters. Image pixels can establish the
+garment/color association, not its size. Profile comparisons check the approved
+image asset and composition, not a person's identity.
+
+Together with `decisions-api` and `youtube-lecun`, these make five enabled
+fixtures: approximately one fresh save of each every five hours (four or five
+per day). Budget limits and unavailable providers can leave checks inconclusive.
+The disabled wrong-image control stays outside the rotation. Each fixture flows
+automatically into the existing daily email's live-test counts, latest outcome,
+and per-surface findings, including failures; no new scheduler or recipient is
+needed. Failed canaries remain enabled to track recovery.
+
 ## Delivery protections and limitations
 
 Owned images must belong to the sampled account's storage prefix. Remote images

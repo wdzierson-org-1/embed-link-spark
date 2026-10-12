@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "purpose": "Reviewed additions to hosted_visual_baselines; provision the pinned bytes in the private quality-reference-images bucket before enabling. This manifest is a review record, not an automatic baseline promotion mechanism.",
+  "reviewed_on": "2026-10-12",
+  "fixtures": [
+    {
+      "id": "linkedin-profile-jmatus",
+      "version": 1,
+      "title": "LinkedIn profile portrait — jmatus",
+      "source_url": "https://www.linkedin.com/in/jmatus/",
+      "image_path": "linkedin-profile-jmatus/v1.jpeg",
+      "sha256": "f805cea1d5a22b88a5fed3de5005ee124d57cde98df0ea599f83b7ef4d65097d",
+      "description": "Expected role: profile portrait, not a profile banner. Approved square portrait asset: head and upper torso centered, short dark hair, black crew-neck shirt, pale gray background. Compare the visible image asset and composition, not the person's identity. Resizing/recompression of this portrait is acceptable. A LinkedIn logo, sign-in screen, wide background banner, or unrelated picture is a mismatch; a missing portrait is not a pass.",
+      "provenance": {
+        "source_asset": "https://media.licdn.com/dms/image/v2/D4D03AQHsmGLJzEUSBg/profile-displayphoto-shrink_200_200/profile-displayphoto-shrink_200_200/0/1678694262330?e=2147483647&v=beta&t=PGU07A1KprHnp1cuowLu3pH2GYKLb0IayPPlQSG8j9w",
+        "source_association": "Previously captured public profile text explicitly captions this profile-displayphoto asset separately from the background banner. Re-fetched and visually reviewed on the review date.",
+        "reviewed_by": "Codex, user-authorized fixture expansion"
+      }
+    },
+    {
+      "id": "medium-whither-ontologies",
+      "version": 1,
+      "title": "Medium — Whither Ontologies?",
+      "source_url": "https://medium.com/@michael.craig.fitzgerald/whither-ontologies-d871bd3a8098",
+      "image_path": "medium-whither-ontologies/v1.png",
+      "sha256": "c31d3c919c40e278bc409060a45e960fec837b815e91ab460defb215aaa32595",
+      "description": "First content figure from Whither Ontologies: architecture diagram with Natural Language REPL centrally, green Agent Prompt and blue Tbox & Rbox/DB Schema boxes on left, pink Raw Data API (SQL) diamond on right and yellow Query and Result Store. Match this article diagram; Medium logo, author avatar, unrelated article artwork and placeholder are mismatches. Resizing/recompression is acceptable.",
+      "provenance": {
+        "source_asset": "https://cdn-images-1.medium.com/max/1024/1*R7s2YIDiH_tKS51J0hRzkA.png",
+        "feed_url": "https://medium.com/feed/@michael.craig.fitzgerald",
+        "feed_item_guid": "https://medium.com/p/d871bd3a8098",
+        "source_association": "First figure in content:encoded of the matching public RSS entry, immediately after the case-study link. Downloaded and visually reviewed on the review date; canonical miro delivery of the same image ID produced identical bytes.",
+        "reviewed_by": "Codex, user-authorized fixture expansion"
+      }
+    },
+    {
+      "id": "peter-millar-alpine-navy",
+      "version": 1,
+      "title": "Peter Millar Alpine Hybrid Sweater Jacket — Navy / XXL",
+      "source_url": "https://www.petermillar.com/p/alpine-hybrid-sweater-jacket/mf26xs49.html?dwvar_mf26xs49_color=NAV&dwvar_mf26xs49_size=XXL&quantity=1",
+      "image_path": "peter-millar-alpine-navy/v1.jpeg",
+      "sha256": "f01bfeb21a085555d70844c0da77796e93b55c078c755bd8b18147d909de090e",
+      "description": "Expected product: Peter Millar Alpine Hybrid Sweater Jacket, SKU MF26XS49, selected NAV/navy variant. Approved image shows the dark navy chunky ribbed button-front sweater jacket with a padded hood and zip-in layer on a pale background. The same navy garment in a product/model shot is acceptable; a beige coat, a different garment or color, campaign artwork, or logo is a mismatch. Preserve the NAV and XXL source parameters. Size cannot be verified from image pixels.",
+      "provenance": {
+        "source_asset": "https://res.cloudinary.com/petermillar/image/upload/t_pdp_main/v1787663789/MF26XS49_NAV.jpg",
+        "source_association": "Previously verified product gallery, Open Graph and Product JSON-LD all identified this SKU/color asset. Re-fetched on the review date; exact bytes still match the independently reviewed source photo and the user's navy-jacket screenshot.",
+        "reviewed_by": "Codex, user-authorized fixture expansion"
+      }
+    }
+  ]
+}
