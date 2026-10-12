@@ -1,10 +1,12 @@
 
 import { useState } from 'react';
-import { ArrowRight } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthShell, AuthTextAction, FieldError } from '@/components/auth/AuthShell';
-import { Spinner } from '@/components/machine/Machine';
-import { Button } from '@/components/ui/button';
+import { SubmitButton, field } from '@/components/auth/AuthControls';
+import { ProviderButtons, type ProviderIdToken } from '@/components/auth/ProviderButtons';
+import { HandleStep } from '@/components/auth/HandleStep';
+import { handlePrefill, isUsernameTaken, sanitizeUsername } from '@/components/auth/usernameAvailability';
+import { writeAppleName } from '@/components/auth/appleName';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -14,33 +16,13 @@ import { useEffect } from 'react';
 import { usePhoneNumber } from '@/hooks/usePhoneNumber';
 import { supabase } from '@/integrations/supabase/client';
 
-// DESIGN-v2 forms: Montreal labels over square white fields (ink edge and spot ring on focus,
-// from the shared Input), one ink button, quiet machine-voice text actions
-const field = 'h-11 text-[15px] md:text-[15px]';
-
-/** The one ink button: its label, or the machine at work with the spinner */
-const SubmitButton = ({ busy, busyLabel, children, disabled }: { busy: boolean; busyLabel: string; children: React.ReactNode; disabled?: boolean }) => (
-  <Button type="submit" disabled={busy || disabled} className="h-11 w-full justify-between px-4 text-[15px] font-medium">
-    {busy ? (
-      <span className="flex items-baseline gap-[0.5ch] font-pixel text-pixel">
-        <Spinner />
-        {busyLabel}
-      </span>
-    ) : (
-      <>
-        <span>{children}</span>
-        <ArrowRight className="h-4 w-4" />
-      </>
-    )}
-  </Button>
-);
-
 // The person's line and the machine's prompt, per view
 const COPY = {
   signin: { address: 'stash://sign-in', title: 'Welcome back.', prompt: 'knock knock. who’s there?' },
   signup: { address: 'stash://sign-up', title: 'Start your stash.', prompt: 'new here? pull up a chair.' },
   reset: { address: 'stash://reset', title: 'Forgot your password?', prompt: 'happens to the best of us.' },
   sent: { address: 'stash://reset', title: 'Check your email.', prompt: 'a link is on its way to you.' },
+  handle: { address: 'stash://handle', title: 'Claim your address.', prompt: 'one more thing. pick your handle.' },
 } as const;
 
 const Auth = () => {
@@ -58,12 +40,14 @@ const Auth = () => {
   const mode = searchParams.get('mode') || 'signin';
   const returnTo = searchParams.get('returnTo');
   const commentItem = searchParams.get('commentItem');
-  const [view, setView] = useState<'tabs' | 'reset'>(mode === 'reset' ? 'reset' : 'tabs');
+  const [view, setView] = useState<'tabs' | 'reset' | 'handle'>(mode === 'reset' ? 'reset' : 'tabs');
   const [tab, setTab] = useState<'signin' | 'signup'>(mode === 'signup' ? 'signup' : 'signin');
   const [resetSent, setResetSent] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+  const [providerBusy, setProviderBusy] = useState(false);
+  const [nameHint, setNameHint] = useState<string | null>(null);
 
-  const { signIn, signUp, user } = useAuth();
+  const { signIn, signUp, signInWithIdToken, user, handle, refreshHandle } = useAuth();
   const { registerPhoneNumber } = usePhoneNumber();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -74,18 +58,22 @@ const Auth = () => {
   // /auth → /home → / and lock the visitor out of signing in); signing in
   // simply replaces the anonymous session.
   const isRealUser = !!user && !(user as { is_anonymous?: boolean }).is_anonymous;
+
+  // Where a signed-in person goes next: back to what sent them here, else the library
+  const destination = returnTo && commentItem ? `${returnTo}?openComment=${commentItem}` : (returnTo ?? '/home');
+
+  // The gate (spec §6.3): a real account leaves this page only once its handle is known. Unknown →
+  // the bar says `| opening…` and nothing else shows; unconfirmed → the claim step; confirmed →
+  // onward. `mode=handle` (Index sends unconfirmed people here) needs nothing special — the same
+  // rules decide. The view follows the person in the very render that learns who they are, not in an
+  // effect after the paint, so no frame shows the forms to someone who is signed in, or "Claim your
+  // address." to someone who signed out in another tab. Onward replaces this page in the history:
+  // Back must not reopen it only for the gate to send the person on again.
+  if (isRealUser && handle && !handle.confirmed && view !== 'handle') setView('handle');
+  if (!isRealUser && view === 'handle') setView('tabs');
   useEffect(() => {
-    if (isRealUser) {
-      if (returnTo && commentItem) {
-        // Redirect back to the original page with comment panel open
-        navigate(`${returnTo}?openComment=${commentItem}`);
-      } else if (returnTo) {
-        navigate(returnTo);
-      } else {
-        navigate('/home');
-      }
-    }
-  }, [isRealUser, navigate, returnTo, commentItem]);
+    if (isRealUser && handle?.confirmed) navigate(destination, { replace: true });
+  }, [isRealUser, handle, navigate, destination]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,7 +84,13 @@ const Auth = () => {
     if (error) {
       toast({
         title: "Sign in failed",
-        description: error.message,
+        description: (
+          <>
+            {error.message}
+            <br />
+            Signed up with Google or Apple? Use that button.
+          </>
+        ),
         variant: "destructive",
       });
     } else {
@@ -104,39 +98,15 @@ const Auth = () => {
         title: "Welcome back!",
         description: "You've been signed in successfully.",
       });
-      
-      if (returnTo && commentItem) {
-        navigate(`${returnTo}?openComment=${commentItem}`);
-      } else if (returnTo) {
-        navigate(returnTo);
-      } else {
-        navigate('/home');
-      }
+      // the gate routes once the handle is known
     }
-    
+
     setLoading(false);
   };
 
   const checkUsernameUniqueness = async (username: string) => {
     if (!username || username.length < 3) return;
-    
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select('username')
-      .eq('username', username.toLowerCase())
-      .single();
-    
-    if (error && error.code !== 'PGRST116') {
-      // PGRST116 means no rows returned, which is what we want
-      console.error('Error checking username:', error);
-      return;
-    }
-    
-    if (data) {
-      setUsernameError('that username is taken. try another.');
-    } else {
-      setUsernameError('');
-    }
+    setUsernameError((await isUsernameTaken(username)) ? 'that username is taken. try another.' : '');
   };
 
   const checkPhoneUniqueness = async (phone: string) => {
@@ -204,17 +174,39 @@ const Auth = () => {
         title: "Account created!",
         description: "You've been signed up successfully.",
       });
-      
-      if (returnTo && commentItem) {
-        navigate(`${returnTo}?openComment=${commentItem}`);
-      } else if (returnTo) {
-        navigate(returnTo);
-      } else {
-        navigate('/home');
+      // the gate routes once the handle is known
+    }
+
+    setLoading(false);
+  };
+
+  // A provider's identity token → Supabase. Apple's extras ride along: the name (first time only)
+  // and the one-shot authorization code the server exchanges so deletion can revoke (spec §6.2).
+  const handleProviderToken = async (t: ProviderIdToken) => {
+    // Apple sends the name once, in this event, and the profile metadata only learns it after a network
+    // write that can land after the claim step has opened; so the name rides in state to the prefill,
+    // set before anything is awaited. Every token sets it (to null when it brings no name), so one
+    // attempt's name never reaches the next sign-in's step.
+    const appleName = t.provider === 'apple' ? [t.appleName?.firstName, t.appleName?.lastName].filter(Boolean).join(' ').trim() : '';
+    setNameHint(appleName || null);
+    // `| signing in…` is for while the token is with Supabase; after that the bar belongs to the gate
+    setProviderBusy(true);
+    const { error } = await signInWithIdToken({ provider: t.provider, token: t.token, nonce: t.nonce }).finally(() => setProviderBusy(false));
+    if (error) {
+      toast({ title: "Sign-in didn't complete.", description: error.message, variant: 'destructive' });
+      return;
+    }
+    if (t.provider === 'apple') {
+      const { data } = await supabase.auth.getSession();
+      const signedIn = data.session?.user;
+      if (signedIn && t.appleName) void writeAppleName(signedIn, t.appleName).catch((e) => console.warn('[auth] apple name', e));
+      if (t.appleCode) {
+        void supabase.functions
+          .invoke('apple-token-exchange', { body: { code: t.appleCode, client: 'web' } })
+          .then(({ error: fnError }) => { if (fnError) console.warn('[auth] apple-token-exchange', fnError.message); });
       }
     }
-    
-    setLoading(false);
+    // the gate routes once the handle is known
   };
 
   const handleResetRequest = async (e: React.FormEvent) => {
@@ -248,11 +240,48 @@ const Auth = () => {
   };
   const showTabs = () => setView('tabs');
 
-  const copy = view === 'reset' ? (resetSent ? COPY.sent : COPY.reset) : COPY[tab];
+  const copy = view === 'handle' ? COPY.handle : view === 'reset' ? (resetSent ? COPY.sent : COPY.reset) : COPY[tab];
+
+  // The pair sits above the fields on both tabs (Radix mounts only the active tab, so one Google
+  // button and one #appleid-signin exist at a time). The footnote and the rule ride inside it: when
+  // neither provider script loads they go with it, and `empty:hidden` takes the gap too
+  const providerPair = (
+    <div className="mb-6 empty:hidden">
+      <ProviderButtons
+        onToken={handleProviderToken}
+        onError={(message) => toast({ title: "Sign-in didn't complete.", description: message, variant: 'destructive' })}
+      >
+        <p className="font-pixel text-pixel text-muted-foreground">one account per email. sign in the same way each time.</p>
+        <div className="flex items-center gap-3 font-pixel text-pixel text-muted-foreground" aria-hidden>
+          <span className="h-px flex-1 bg-ink/15" />
+          <span>or with your email</span>
+          <span className="h-px flex-1 bg-ink/15" />
+        </div>
+      </ProviderButtons>
+    </div>
+  );
+
+  // A signed-in person is never shown the forms: the claim step while their handle is unconfirmed,
+  // otherwise nothing under the title but the bar (`| opening…`, or on their way out)
+  const claimStep =
+    view === 'handle' && user && handle ? (
+      <HandleStep
+        userId={user.id}
+        serverUsername={handle.username}
+        email={user.email}
+        initialUsername={handlePrefill(user, handle.username, nameHint)}
+        onClaimed={() => void refreshHandle()}
+      />
+    ) : null;
 
   return (
-    <AuthShell address={copy.address} title={copy.title} prompt={copy.prompt}>
-      {view === 'reset' ? (
+    <AuthShell
+      address={copy.address}
+      title={copy.title}
+      prompt={copy.prompt}
+      busy={isRealUser && !handle ? 'opening…' : providerBusy ? 'signing in…' : null}
+    >
+      {isRealUser ? claimStep : view === 'reset' ? (
         resetSent ? (
           <div className="space-y-5">
             <p className="text-[15px] leading-[1.55] text-ink">
@@ -294,6 +323,7 @@ const Auth = () => {
           </TabsList>
 
           <TabsContent value="signin" className="mt-6">
+            {providerPair}
             <form onSubmit={handleSignIn} className="space-y-5">
               <div className="space-y-2">
                 <Label htmlFor="signin-email">Email</Label>
@@ -330,6 +360,7 @@ const Auth = () => {
           </TabsContent>
 
           <TabsContent value="signup" className="mt-6">
+            {providerPair}
             <form onSubmit={handleSignUp} className="space-y-5">
               <div className="space-y-2">
                 <Label htmlFor="signup-email">Email</Label>
@@ -370,7 +401,7 @@ const Auth = () => {
                     autoComplete="off"
                     value={username}
                     onChange={(e) => {
-                      const cleanUsername = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '');
+                      const cleanUsername = sanitizeUsername(e.target.value);
                       setUsername(cleanUsername);
                       if (cleanUsername.length >= 3) {
                         checkUsernameUniqueness(cleanUsername);

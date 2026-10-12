@@ -539,7 +539,7 @@ once, and the shared beat never strands one mid-effect.
 | The shared page (§12.15) | `opening the save…` | `from @will’s stash`; a dead link: "This link no longer works." |
 | Settings | `| loading your settings…`, `| checking your plan…`, `| checking for agents…` | `signed in as …`, `connected 3 days ago · last used 1 hour ago`, `activity.log` |
 | The loading screen | `> opening your stash`, then eleven more, decrypting in the code voice (§12.10) | |
-| The way in (§12.14) | `| signing in…`, `| creating your stash…`, `| sending…`, `| updating…`, `| checking your reset link…` | prompts `> knock knock. who’s there?`, `> new here? pull up a chair.`, `> happens to the best of us.`, `> a link is on its way to you.`; field errors `✕ that username is taken. try another.` |
+| The way in (§12.14) | `| signing in…`, `| creating your stash…`, `| sending…`, `| updating…`, `| checking your reset link…`, `| opening…`, `| claiming…` | prompts `> knock knock. who’s there?`, `> new here? pull up a chair.`, `> happens to the best of us.`, `> a link is on its way to you.`, `> one more thing. pick your handle.`; field errors `✕ that username is taken. try another.`, `✕ 3–20 letters and numbers.`; under the provider pair `one account per email. sign in the same way each time.` and the rule `or with your email` |
 
 ## 11. Accessibility
 
@@ -982,23 +982,40 @@ homepage.")
   foot `save it fast. find it when you need it.` with `privacy` and `terms` in the machine voice.
 - **One floating window,** 420 px, centred: 1 px ink, square, the 4 px print shadow, printing in.
   Its 28 px ink bar names the page's address in the code voice: `stash://sign-in`,
-  `stash://sign-up`, `stash://reset`, `stash://new-password`.
+  `stash://sign-up`, `stash://reset`, `stash://new-password`, `stash://handle`.
 - **Inside:** the person's line as a screen title ("Welcome back.", "Start your stash.", "Forgot
-  your password?", "Check your email.", "Choose a new password.") and under it the machine's
-  prompt in JetBrains Mono 13, `> knock knock. who’s there?`, which decrypts in and waits behind
-  the block cursor. Then square paper tabs, `Sign in` / `Sign up` (the open one ink).
+  your password?", "Check your email.", "Choose a new password.", "Claim your address.") and under
+  it the machine's prompt in JetBrains Mono 13, `> knock knock. who’s there?`, which decrypts in
+  and waits behind the block cursor. Then square paper tabs, `Sign in` / `Sign up` (the open one
+  ink).
 - **Fields:** Montreal labels (13/500) over 44 px square white fields (ink edge and spot ring on
   focus); placeholders are examples, never the label again (`you@example.com`, `At least 8
   characters`). For password managers the email is the login on both forms
   (`autocomplete="username"`, with `current-password` / `new-password`); the @handle is
-  `autocomplete="off"`, so it's never saved as the login.The username field is JetBrains Mono after an `@`, and under it the address it
+  `autocomplete="off"`, so it's never saved as the login. The username field is JetBrains Mono after an `@`, and under it the address it
   makes: `gostash.it/feed/you`. Errors are machine lines under the field (`✕ that username is
   taken. try another.`), wrapping, tied to the field with `aria-describedby`.
+- **The provider pair** (2026-10-11): above the fields on both tabs, Google's rendered button then
+  Apple's — `outline` / black, square corners, 40 px, "Continue with …", at the body's width. Under
+  them the footnote `one account per email. sign in the same way each time.` and a 1 px rule with
+  `or with your email` in the machine voice. Scripts load on this page only; a blocked one collapses
+  its slot. The bar says `| signing in…` while a provider token is with Supabase.
+- **The handle step:** `stash://handle`, "Claim your address.", `> one more thing. pick your handle.`
+  Prefilled (a name-derived handle, else the email's local part unless it is an Apple relay
+  address, else the server's when it is 3–20 letters and numbers; accents fold into their letters,
+  `José` → `jose`; full order in docs/ui-changes.md 2026-10-11), the sign-up username field, the
+  feed-address helper, one ink **Continue** (`claiming…`). A prefill that turns out to be taken
+  quietly becomes the server's handle (the person's own), with no error; one the person typed
+  shows the error. Shown once, to anyone whose handle the server generates from this release on,
+  and to converted guests (whose `guest-…` handle is never offered as the prefill); Continue with
+  the prefill is the skip. Errors: `✕ that username is taken. try another.`,
+  `✕ 3–20 letters and numbers.`
 - **One ink button,** full width, its label left and an arrow right; at work it shows the turning
   cursor and `signing in…` / `creating your stash…` / `sending…` / `updating…`. Quiet actions are
   machine-voice text: `forgot password?` beside the password label, `back to sign in`.
 - Behaviour is unchanged (the anonymous-session guard, `returnTo` / `commentItem`, `mode=reset` and
-  `mode=signup` deep links, the username and phone checks, the reset rate-limit message).
+  `mode=signup` deep links, the username and phone checks, the reset rate-limit message), and a
+  signed-in person waits on `| opening…` until their handle is known.
 
 ### 12.15 The shared page
 

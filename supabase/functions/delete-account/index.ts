@@ -12,7 +12,10 @@
 //   2. Storage — remove every object under `<user_id>/` in stash-media
 //      (uploads, previews/, staging/, WhatsApp media). No constraint covers
 //      storage, so this has to be explicit.
-//   3. auth.admin.deleteUser — the DB cascades from migration 20260907120000
+//   3. Sign in with Apple — revoke every refresh token apple-token-exchange
+//      stored for this user (Apple asks for this on account deletion); best
+//      effort, logged, never blocking.
+//   4. auth.admin.deleteUser — the DB cascades from migration 20260907120000
 //      take items, embeddings, tags, conversations, phone, profile, grants,
 //      feedback, logs, and the auth.* rows.
 //
@@ -22,6 +25,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { isAgentToken } from "../_shared/agentToken.ts";
+import { appleEnv, makeAppleClientSecret } from "../_shared/appleClientSecret.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -98,6 +102,48 @@ async function cancelStripeSubscriptions(email: string): Promise<{ customers: nu
   return { customers: customers.data.length, canceled };
 }
 
+const APPLE_REVOKE_URL = "https://appleid.apple.com/auth/revoke";
+
+async function revokeAppleTokens(admin: SupabaseClient, userId: string): Promise<{ revoked: number; failed: number }> {
+  const { data, error } = await admin.from("apple_sign_in_tokens").select("client_id, refresh_token").eq("user_id", userId);
+  if (error) {
+    log("Apple tokens unreadable", { message: error.message });
+    return { revoked: 0, failed: 0 };
+  }
+  const rows = (data ?? []) as Array<{ client_id: string; refresh_token: string }>;
+  if (rows.length === 0) return { revoked: 0, failed: 0 };
+  let env: ReturnType<typeof appleEnv>;
+  try {
+    env = appleEnv();
+  } catch (e) {
+    log("Apple revoke skipped: secrets missing", { message: e instanceof Error ? e.message : String(e) });
+    return { revoked: 0, failed: rows.length };
+  }
+  let revoked = 0;
+  let failed = 0;
+  for (const row of rows) {
+    try {
+      const clientSecret = await makeAppleClientSecret({ teamId: env.teamId, keyId: env.keyId, clientId: row.client_id, privateKeyPem: env.privateKeyPem });
+      const res = await fetch(APPLE_REVOKE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ client_id: row.client_id, client_secret: clientSecret, token: row.refresh_token, token_type_hint: "refresh_token" }).toString(),
+        // A stalled Apple must never hold up deletion: the abort lands in the catch below and counts as failed.
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (res.ok) revoked += 1;
+      else {
+        failed += 1;
+        log("Apple revoke refused", { clientId: row.client_id, status: res.status });
+      }
+    } catch (e) {
+      failed += 1;
+      log("Apple revoke failed", { clientId: row.client_id, message: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return { revoked, failed };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json(405, { error: "POST only" });
@@ -128,11 +174,14 @@ serve(async (req) => {
     await removeObjects(admin, paths);
     log("Storage done", { objects: paths.length });
 
+    const apple = await revokeAppleTokens(admin, userId);
+    log("Apple done", apple);
+
     const { error: deleteError } = await admin.auth.admin.deleteUser(userId);
     if (deleteError) throw new Error(`auth delete: ${deleteError.message}`);
     log("Auth user deleted", { userId });
 
-    return json(200, { deleted: true, storageObjects: paths.length, stripe });
+    return json(200, { deleted: true, storageObjects: paths.length, stripe, apple });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log("ERROR", { userId, message });

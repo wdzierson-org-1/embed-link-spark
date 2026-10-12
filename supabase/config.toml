@@ -25,6 +25,21 @@ enabled = true
 authorization_url_path = "/oauth/consent"
 allow_dynamic_registration = true
 
+# Hosted project has the same values (set 2026-10-11 via the Management API, plan
+# docs/superpowers/plans/2026-10-11-google-apple-sign-in-web.md Task 3). Id-token sign-in only:
+# the clients get the token from Google/Apple themselves, so Supabase auth holds no provider
+# client secret (the Apple .p8 lives only in edge-function secrets, spec §5.4).
+[auth.external.google]
+enabled = true
+client_id = "772942709290-2j03nu08hnumh6jfe2h0j6jkh9bnrbta.apps.googleusercontent.com,772942709290-ha25d35f942l5blept0aiv30aculahsn.apps.googleusercontent.com"
+secret = ""
+skip_nonce_check = false
+
+[auth.external.apple]
+enabled = true
+client_id = "it.gostash.web,it.gostash.stash"
+secret = ""
+
 [functions.twilio-webhook]
 verify_jwt = false
 
@@ -38,6 +53,10 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.delete-account]
+verify_jwt = true
+
+# Apple authorization code → refresh token (plan 2026-10-11-google-apple-sign-in-web Task 13).
+[functions.apple-token-exchange]
 verify_jwt = true
 
 [functions.stripe-webhook]
