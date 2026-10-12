@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
-import PhoneNumberSetup from '@/components/PhoneNumberSetup';
 import SubscriptionSettings from '@/components/SubscriptionSettings';
 import AccountSettings from '@/components/settings/AccountSettings';
 import TagsSettings from '@/components/settings/TagsSettings';
@@ -20,7 +19,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 const SECTIONS = [
   { value: 'account', label: 'Your information', hint: 'name, email, feed, reminders' },
   { value: 'agents', label: 'Connected agents', hint: 'your ai, over mcp' },
-  { value: 'phone', label: 'Phone & WhatsApp', hint: 'save by text message' },
+  // Phone & WhatsApp withdrawn 2026-10-12 until the phone-based features ship (docs/ui-changes.md)
   { value: 'subscription', label: 'Subscription', hint: 'plan and billing' },
   { value: 'tags', label: 'Tags', hint: 'tags you made before' },
 ] as const;
@@ -110,10 +109,6 @@ const Settings = () => {
 
             <TabsContent value="agents" className="mt-0">
               <ConnectedAgentsSettings />
-            </TabsContent>
-
-            <TabsContent value="phone" className="mt-0">
-              <PhoneNumberSetup />
             </TabsContent>
 
             <TabsContent value="subscription" className="mt-0">

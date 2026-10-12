@@ -849,14 +849,15 @@ ink on hover.
 
 ### 12.9 Settings
 
-(`pages/Settings`, `settings/*`, `PhoneNumberSetup`, `SubscriptionSettings`)
+(`pages/Settings`, `settings/*`, `SubscriptionSettings`)
 - "Settings" as a page title, and `signed in as you@example.com` in the machine voice.
-- **The index** (248 px, sticky): the sections numbered like a terminal menu, `01`–`05` in
+- **The index** (248 px, sticky): the sections numbered like a terminal menu, `01`–`04` in
   Departure Mono, the name in Montreal 15/500 and a one-line hint in Departure Mono; separated by
   hairlines under an ink top rule; the open one inverted to ink with its number in
   `--spot-on-ink`. On phones it becomes a row of paper tabs. Sections can be linked:
   `/settings#agents`.
-- **Order:** Your information · Connected agents · Phone & WhatsApp · Subscription · Tags.
+- **Order:** Your information · Connected agents · Subscription · Tags. (Phone & WhatsApp was
+  withdrawn on 2026-10-12 until the phone-based features ship; see `docs/ui-changes.md`.)
 - **Sections are plain white sheets** (2 px, line edge), titles 20/500, descriptions 15 muted,
   form labels 13/500, 40 px square inputs, one ink primary button.
 - **Your information:** the profile form; the username in JetBrains Mono on fill (it can't change);
@@ -866,8 +867,6 @@ ink on hover.
   cap; set-up lines for Claude, Claude Code and other agents, commands in JetBrains Mono;each connected agent as a window (`● connected` in the bar,
   its history in Departure Mono, a square "Revoke"); and `activity.log`, a window listing every
   search and read with Departure Mono times.
-- **Phone & WhatsApp:** numbers in JetBrains Mono 15 with `verified` / `pending` tags; the
-  WhatsApp steps numbered in 24 px ink squares.
 - **Subscription:** the plan name and price ("$4.99 a month"), its state as a tag (`active` and
   `trial` on the spot, `free` outlined), facts as a tree, one primary action, a square refresh, and
   what Premium includes with 20 px square checks.
@@ -1014,7 +1013,7 @@ homepage.")
   cursor and `signing in…` / `creating your stash…` / `sending…` / `updating…`. Quiet actions are
   machine-voice text: `forgot password?` beside the password label, `back to sign in`.
 - Behaviour is unchanged (the anonymous-session guard, `returnTo` / `commentItem`, `mode=reset` and
-  `mode=signup` deep links, the username and phone checks, the reset rate-limit message), and a
+  `mode=signup` deep links, the username check, the reset rate-limit message), and a
   signed-in person waits on `| opening…` until their handle is known.
 
 ### 12.15 The shared page

@@ -274,7 +274,7 @@ importing the key), `APPLE_SERVICES_ID`, `APPLE_BUNDLE_ID` (`it.gostash.stash`).
      `data-border="false"`, `data-border-radius="0"`, `data-width="<measured>"`,
      `data-height="40"`).
 - Under the pair: the footnote, then the rule `or with your email`, then the existing fields. The
-  Sign up tab keeps username and phone for the email path only.
+  Sign up tab keeps username for the email path only (its optional phone field was withdrawn on 2026-10-12).
 - Scripts: `https://accounts.google.com/gsi/client` and Apple's `appleid.auth.js` are injected
   **only on `/auth`**, once, by a small `useProviderScripts` hook. If a script fails to load (ad
   or privacy blockers) its slot collapses quietly — the email form is never affected. Client ids

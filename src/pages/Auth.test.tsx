@@ -61,10 +61,6 @@ vi.mock('@/components/auth/HandleStep', () => ({
 }));
 vi.mock('@/components/auth/appleName', () => ({ writeAppleName: vi.fn(async () => {}) }));
 
-vi.mock('@/hooks/usePhoneNumber', () => ({
-  usePhoneNumber: () => ({ registerPhoneNumber: vi.fn() }),
-}));
-
 vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({ toast: mockToast }),
 }));
@@ -364,5 +360,16 @@ describe('Auth — Google and Apple', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: /continue with google/i }));
     expect(await screen.findByRole('button', { name: 'Continue as ginagoogle' })).toBeInTheDocument();
+  });
+});
+
+describe('Auth — sign-up form', () => {
+  it('asks for email, password and username only — no phone field', () => {
+    render(authRoutes('/auth?mode=signup'));
+    expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    expect(screen.getByLabelText('Username')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/phone/i)).toBeNull();
+    expect(screen.queryByText(/WhatsApp/i)).toBeNull();
   });
 });
