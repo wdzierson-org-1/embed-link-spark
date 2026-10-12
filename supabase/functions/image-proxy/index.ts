@@ -5,7 +5,59 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+/** Monitor requests are fully buffered within one deadline so an upstream body
+ * cannot keep downloading after the collector has timed out. Browser requests
+ * retain the existing streaming behavior. */
+async function fetchMonitorImage(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const collect = async (): Promise<Response> => {
+    const response = await fetch(url, { ...init, redirect: 'error', signal: controller.signal });
+    if (!response.ok || response.redirected) {
+      void response.body?.cancel().catch(() => {});
+      return response;
+    }
+    const limit = 5 * 1024 * 1024;
+    if (Number(response.headers.get('content-length') || 0) > limit) {
+      void response.body?.cancel().catch(() => {});
+      throw new Error('monitor_image_too_large');
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('monitor_empty_image');
+    const cancel = () => { void reader.cancel().catch(() => {}); };
+    controller.signal.addEventListener('abort', cancel, { once: true });
+    const chunks: Uint8Array[] = []; let size = 0;
+    try {
+      while (true) {
+        if (controller.signal.aborted) throw new Error('monitor_timeout');
+        const { value, done } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > limit) { cancel(); throw new Error('monitor_image_too_large'); }
+        chunks.push(value);
+      }
+      if (controller.signal.aborted) throw new Error('monitor_timeout');
+    } finally {
+      controller.signal.removeEventListener('abort', cancel);
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(size); let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return new Response(bytes, { status: response.status, headers: response.headers });
+  };
+  try {
+    return await Promise.race([collect(), new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { controller.abort(); reject(new Error('monitor_timeout')); }, 5_000);
+    })]);
+  } finally { clearTimeout(timer); controller.abort(); }
+}
+
 serve(async (req) => {
+  // Hosted visual audits inspect the same route, but must never inherit this
+  // legacy proxy's redirect-following behavior. Default browser requests retain
+  // their current behavior. The response marker lets audits fail closed against
+  // an older deployment or an ordinary cached response.
+  const visualMonitor = req.headers.get('X-Stash-Visual-Monitor') === '1';
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -47,10 +99,10 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Proxying image from: ${imageUrl}`);
+    if (!visualMonitor) console.log(`Proxying image from: ${imageUrl}`);
 
     // Fetch the image with browser-like headers
-    const response = await fetch(imageUrl, {
+    const upstreamOptions: RequestInit = {
       method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -62,10 +114,14 @@ serve(async (req) => {
         'Sec-Fetch-Mode': 'no-cors',
         'Sec-Fetch-Site': 'cross-site',
       },
-    });
+    };
+    const response = visualMonitor
+      ? await fetchMonitorImage(imageUrl, upstreamOptions)
+      : await fetch(imageUrl, upstreamOptions);
 
-    if (!response.ok) {
-      console.log(`Failed to fetch image: ${response.status} ${response.statusText}`);
+    if (!response.ok || (visualMonitor && response.redirected)) {
+      if (!visualMonitor) console.log(`Failed to fetch image: ${response.status} ${response.statusText}`);
+      void response.body?.cancel().catch(() => {});
       return new Response(
         JSON.stringify({ error: 'Failed to fetch image' }),
         { 
@@ -97,7 +153,9 @@ serve(async (req) => {
     const responseHeaders = new Headers({
       ...corsHeaders,
       'Content-Type': contentType,
-      'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
+      'Cache-Control': visualMonitor ? 'no-store' : 'public, max-age=86400',
+      'Vary': 'X-Stash-Visual-Monitor',
+      ...(visualMonitor ? { 'X-Stash-Visual-Mode': 'no-redirect' } : {}),
     });
 
     // Add content-length if available
@@ -114,7 +172,7 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('Error in image proxy:', error);
+    console.error('Error in image proxy:', visualMonitor ? 'monitor_upstream_unavailable' : error);
     return new Response(
       JSON.stringify({ error: 'Internal server error' }),
       { 
