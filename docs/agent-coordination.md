@@ -1,12 +1,148 @@
 # Stash — Claude / Codex coordination
 
+**Updated by Codex: 2026-10-11 20:50 EDT.** Will has assigned **all iOS development to Codex, including Google and Apple authentication**. This supersedes earlier, narrower ownership entries below. Claude's acknowledgement of this handoff is **pending**; the ownership assignment comes from Will and is effective now. *(Claude: acknowledged 2026-10-12 14:22 EDT — see “Questions and acknowledgement”.)*
+
+**Shared working copy:** `/Users/will/Appdev/embed-link-spark/docs/agent-coordination.md`. Read and update this absolute path even when implementing in another worktree. Worktree copies are snapshots, not separate coordination queues. Preserve dated entries; update current status and append an acknowledgement when a handoff is read. This follows the Gisted coordination structure without importing Gisted's services, credentials or release roles.
+
+## Agents and ownership
+
+| Owner | Territory | Coordination boundary |
+| --- | --- | --- |
+| **Codex — iOS lead** | All `ios/**`: SwiftUI app, authentication/session/profile flows, Share extension, capture, library/detail/media/Ask, persistence, accessibility, tests, dependencies, project/signing configuration, build and TestFlight preparation. | Claude should hand over any native work or findings rather than implement a second iOS solution. Codex owns the native auth phase previously called “iOS plan 18.” |
+| **Codex — shared native code and macOS** | `ios/StashKit/**` and the native Mac rebuild in the `macos-capture` worktree. | StashKit serves both platforms. Preserve the active Mac changes before altering shared client, Keychain or App Group configuration. |
+| **Claude — web and web auth** | `src/**`, web assets and web auth UX; any separately assigned browser-extension work. | Continue web work independently. Describe user-visible changes and native-facing contracts in `docs/ui-changes.md`; iOS parity implementation belongs to Codex. |
+| **Claude — current auth backend handoff** | Existing provider configuration, OAuth profile migration, `apple-token-exchange`, `delete-account` and their shared auth helpers. | Claude is the initial contact for the web/backend auth work already delivered. Claim any further backend/config change here first. This is not a blanket reassignment of Codex's existing enrichment/backend work. |
+| **Named implementer per change — shared backend/API** | `supabase/**`, migrations, auth settings, shared capture/enrichment contracts and cross-platform docs. | Record the exact owner, files and compatibility impact before edits. Resolve an existing overlapping claim with its owner; independent work can continue. |
+
+### Verified source baseline
+
+Read-only local audit, 2026-10-11; these are source findings, not a new release or production auth verification.
+
+- Canonical checkout: `/Users/will/Appdev/embed-link-spark`, `main` at `98ea955d1c3b5327b878a7df1796b9f24d7c7b95`. Web/backend Google and Apple phase 1 merged in `5d8de15`.
+- iOS worktree: `/Users/will/Documents/ChatGPT/Stash/worktrees/ios-design-v2`, branch `codex/ios-design-v2`, clean at `4132b211b4307564ecbda9119d3ed50c2c6e4a7c`. That commit is an ancestor of main and its entire `ios/` tree matches the audited main. Start implementation from updated main; preserve the integrated v2 UI.
+- Claude's auth worktree: `/Users/will/Appdev/embed-link-spark/.claude/worktrees/google-apple-sign-in`, clean at `cc8aef4`, already merged. Claude should report any additional work not represented by this baseline.
+- iOS currently has native email/password auth and account-safe session restoration/deletion. It has **no native Google/Apple provider flow or handle-confirmation gate** yet.
+- The Mac worktree `/Users/will/Documents/ChatGPT/Stash/worktrees/macos-capture` contains uncommitted changes to StashKit `AppGroup.swift`, `SharedKeychainStorage.swift`, `StashClient.swift`, related tests and new `MacSharedEntitlements.swift`. Inventory and integrate the needed shared changes narrowly; do not merge the entire older Mac branch blindly.
+- Canonical `CLAUDE.md` is already modified, with additional untracked local configuration/docs. Those changes are unrelated to this handoff and must be preserved.
+
+## Rules
+
+1. **One implementation owner.** Codex owns every iOS change, including auth. Claude can provide contracts, review and backend support without starting parallel native implementation. Any exception must be explicitly handed off here.
+2. **Claim concrete work.** Before implementation, add owner, timestamp, worktree/branch and exact paths under “Working on now.” Keep shared-file claims short. Mark claims released or done; do not erase another agent's history. A broad ownership assignment is not evidence that implementation has begun.
+3. **Read at checkpoints.** Re-read this canonical file at task start, before shared-file edits, before integration/commit/release, and at completion. Record changes to scope or blockers as they occur. No background monitoring is created by this document.
+4. **Contracts before parallel consumers.** Shared auth/schema/API changes get a compatibility note in [PLATFORM_API.md](PLATFORM_API.md) and a dated entry in [ui-changes.md](ui-changes.md). Include fields, errors, rollout order and behavior for older clients. Prefer additive compatibility; do not independently recreate web migrations/functions in a native branch.
+5. **Protect existing work and accounts.** Use isolated implementation branches/worktrees, preserve dirty files and durable per-account queues, and never reset or sign out Will's installed app to make a test pass. Use fixtures or designated test accounts for destructive auth/deletion checks. Never put credentials, tokens, authorization codes or private signing keys in this log.
+6. **Handoff evidence, not assumptions.** A notice is not an acknowledgement. Distinguish source inspected, tests run, deployment recorded by another agent, deployment independently checked, and real provider sign-in exercised. Release ownership follows the named change owner and Will's instructions; this handoff is not a new production or TestFlight publication instruction.
+
+## Working on now
+
+- **Codex · 2026-10-11 20:50 EDT — coordination handoff, ready for Claude.** Source/contract audit complete. Only `docs/agent-coordination.md` is changed for this handoff. Native auth implementation has not started in this slice; it is the first Codex-owned implementation below. Shared StashKit reconciliation is its first prerequisite.
+- **Claude — acknowledgement requested.** Please record your current branch, any active auth/backend claims and any unpublished iOS work under “Questions and acknowledgement.” The earlier web auth source is merged; further web/extension/backend work should have its own current claim.
+- **Claude · 2026-10-12 14:22 EDT — web: withdraw phone capture (pending Will's go on the design).** Scope when approved: `src/pages/Auth.tsx` (drop the optional phone field + probe + `registerPhoneNumber`), `src/pages/Settings.tsx` (drop the “Phone & WhatsApp” section), delete `src/components/PhoneNumberSetup.tsx`, `src/components/WhatsAppInfo.tsx`, `src/hooks/usePhoneNumber.ts`, `src/utils/phoneNumber.ts`; `docs/ui-changes.md` + `DESIGN-v2.md` §12.11/§12.14. No `supabase/**` change: `user_phone_numbers` and `twilio-webhook` stay. iOS parity (hide the sign-up phone field and `PhoneSection`) is Codex's; the contract entry will say so.
+- **Claude · 2026-10-12 — browser extension, phase 2 (bridge), NOT started.** Plan ready at `docs/superpowers/plans/2026-10-11-google-apple-sign-in-extension-bridge.md`. When it starts it will claim here first: new `supabase/functions/extension-session`, `src/pages/ExtensionConnect.tsx`, `src/utils/extensionBridge.ts`, `src/App.tsx`, `extension/**` (manifest `key` + `externally_connectable`, `bridge.js`, `signin.*`, hosted zip 1.3.0), `supabase/config.toml`, docs. No iOS/StashKit files.
+- **Claude — backend auth helpers: no active edits.** `apple-token-exchange` (v2), `delete-account` (v25), `_shared/appleClientSecret.ts`, the handles migration and the provider config are stable at `98ea955`. Any further change (e.g. the `mailer_autoconfirm` follow-up) gets a claim here first.
+
+### First iOS implementation: Google + Apple auth
+
+**Codex owns the complete slice.** The definitive shipped behavior is the **2026-10-11 entry in [ui-changes.md](ui-changes.md)**, together with [PLATFORM_API.md](PLATFORM_API.md). The [auth design spec](superpowers/specs/2026-10-11-google-apple-sign-in-design.md) supplies context and public configuration; its older handle details yield to the shipped entry. Its Electron/Lovable Mac description is stale relative to the native rebuild.
+
+| Step | Implementation scope | Completion evidence |
+| --- | --- | --- |
+| 1. Baseline and shared session | Update the iOS base; reconcile Mac StashKit changes. Review `ios/Stash/Auth/SessionStore.swift`, `ios/StashKit/Sources/StashKit/{StashClient,SharedKeychainStorage,AppGroup}.swift`. | Existing session restore, owner checks, app/Share-extension Keychain access and per-account queues retain their behavior on both native consumers. |
+| 2. Provider setup and entry | Native GoogleSignIn and AuthenticationServices; `ios/project.yml`, `ios/Stash/Info.plist`, `ios/Stash/Stash.entitlements`, `ios/Stash/StashApp.swift`, `ios/Stash/Auth/**`. Preserve email/password/signup/reset. | Correct native capability, Google URL scheme/callback and public IDs; a fresh nonce for each attempt; provider token reaches the existing Supabase session path. |
+| 3. Profile/handle gate | Read `handle_confirmed`, normalize signup usernames, add the one-time native claim screen before main tabs and implement the current prefill/collision rules. | New provider account claims once; existing confirmed account goes straight in; relaunch resumes an unfinished claim; unavailable profile does not trap the user. |
+| 4. Apple lifecycle | Preserve first-authorization name; exchange Apple code promptly with the existing backend; retain account-safe deletion behavior. | Name is not lost or allowed to overwrite a chosen name; exchange failure does not block sign-in; deletion and local cleanup honor the server result. |
+| 5. Acceptance and release preparation | Focused unit/integration tests plus FlowDeck builds and native UI/device checks; record exact commands, candidate and limits. | Actual Google and Apple walkthroughs, warm restore, Share-extension capture and the failure/account-switch cases below; a tested release candidate with remaining limitations stated. |
+
+#### Contract checklist for implementation
+
+- Use SDK identity tokens with Supabase `signInWithIdToken`. Provider receives SHA-256 hex of a fresh raw nonce; Supabase receives the raw nonce. Use a nonce-capable Google SDK; resolve API/config mismatches explicitly rather than silently weakening shared nonce validation.
+- Google native `serverClientID` is the **web** client ID; native Google still needs its own configured iOS client and callback URL scheme. Apple native audience is `it.gostash.stash`, whereas web is `it.gostash.web`. Read the public IDs from the linked contract; all provider secrets remain server-side.
+- Keep cancellation silent; show actionable errors for real failures and allow retry with a new nonce. Preserve same-verified-email account linking; Apple relay addresses can represent a separate account. Do not merge identities by display name or move anonymous captures as part of this slice.
+- Handles are ASCII lowercase `[a-z0-9]{3,20}`. Fold accents with NFKD, remove U+0300–U+036F marks, sanitize and cap at 20, including existing email signup. Prefill: provider name → non-relay email local part → valid server handle → empty. Exclude the current user's row from availability checks. An untouched taken prefill silently falls back to a valid server handle; an edited taken handle stays an error. Never offer/confirm a `guest-…` handle.
+- Claim `username` and `handle_confirmed = true` together. Change `display_name` only when it is still the documented server fallback; preserve chosen names. Handle uniqueness conflict `23505`; retain the screen on other write errors. Re-read profile after success. No separate Skip. A failed profile read gets the documented bounded retry and allows entry if still unknown; a later successful read can show the gate.
+- Pass Apple's first-authorization name directly into the claim prefill and persist the metadata/profile fields using the fallback-name rules. Promptly call owner-authenticated `POST /functions/v1/apple-token-exchange` with `{ code, client: "ios" }`. The code is short-lived and single-use: do not put it in logs or the durable capture queue; exchange failure is nonblocking.
+- Use the existing `delete-account` endpoint. The `apple: { revoked, failed }` result is informational; clear the deleted owner's local session/data on successful deletion, and retain session/show failure if deletion fails. Do not let a delayed result clear another account's session.
+- Reuse shared Keychain and owner-pinned capture/session behavior for the Share extension; no independent extension OAuth flow. Preserve unrelated queued uploads, recordings and edits on sign-out/account switch.
+
+**Bounded acceptance:** fresh and returning Google/Apple accounts; retained email auth; cancel/retry/network failure; matching-email and Apple relay behavior; handle accent/length/uniqueness/prefill cases; profile-read failure; Apple name/code handling; sign-out/relaunch/token refresh/account switch; app-to-Share-extension authenticated capture; deletion success/failure using test accounts. Unit mocks alone do not establish provider-console, entitlement or real device success. Record simulator/device and any blocked checks instead of calling them passed.
+
+### Other web changes: parity review queue
+
+Will requested additional web changes on iOS without naming them yet. These are **candidates to compare against current iOS**, not a claim that every feature is missing or approved for immediate implementation. Auth is first; Codex will mark each candidate already supported, needed, deferred or blocked and narrow the next slice with Will's priorities.
+
+| Candidate | Shared contract / native question |
+| --- | --- |
+| Document previews and images inside notes | Read `attributes.media.preview.file_path`; check note-image edits against the `analyze-note-images` contract. Preserve server-owned image-analysis attributes. See 2026-10-10 input-panel entry in `ui-changes.md`. |
+| Media and transcript details | Distinguish link `enrichment.evidence.transcript` from upload `media.transcript` job progress; refresh source when evidence changes; preserve canonical playback URLs and timestamped notes. Compare with native readers already shipped. |
+| Places and map details | Read `attributes.place` including hours/timezone, contacts and map. Preserve original photo heroes; place-map preview belongs in the appropriate detail section. |
+| Enriched-object interactions | Assess native controls for `object-interactions`, editable drafts, source fingerprint/provenance and ordinary private-note saves. Reuse server contracts; no native enrichment pipeline. |
+| Preview performance and compact cards | Validate the native cache/layout outcome. The web's WebKit CSS fix is not a native implementation task. Existing v2 title/share refinements are already on main. |
+
+References: [cross-platform change log](ui-changes.md), [platform API](PLATFORM_API.md), [iOS v2 handoff](ios-design-v2-handoff.md), [product ethos](ETHOS.md), [v2 design](../DESIGN-v2.md). Preserve the one-object capture model and the distinction between user content, short description, extracted source and AI summary.
+
+## Ready to integrate / hand off
+
+- **Codex · 2026-10-11 20:50 EDT — this coordination document.** Native/web source and worktree status inspected. No app code changed, no app build/test run, and no backend/provider configuration or release performed in this documentation slice.
+- **Claude web/backend phase 1 — merged source, deployment reported.** Local merge `5d8de15` and follow-up docs `98ea955` verified. The auth spec records Vercel live, `apple-token-exchange` v2, `delete-account` v25, the migration and provider configuration applied. Those live claims were **not independently checked in this handoff**. The same spec both leaves production provider walkthroughs open and later calls them verified; please resolve that discrepancy with concrete evidence. Treat the walkthroughs as unverified until then.
+
+Use this compact handoff format for subsequent slices:
+
+```text
+Owner + local timestamp:
+Status: working / ready / integrated / released / blocked
+Worktree + branch + base + candidate commit (or exact pending file list):
+Behavior and contracts changed; compatibility/rollout order:
+Tests actually run + results + evidence paths:
+Provider/config/migration/deployment evidence, if relevant:
+Remaining gaps or decisions:
+Next owner/action; acknowledgement requested from:
+```
+
+## Questions and acknowledgement
+
+**Claude: please append a dated response here when you read this.** Codex can proceed with independent iOS work; an unresolved overlapping shared-file claim or required external configuration is the only part that needs to wait.
+
+1. Acknowledge Codex's ownership of all iOS, including native auth. List and hand over any iOS plans, uncommitted edits or branches so they are preserved and not duplicated.
+2. Confirm the stable web/backend auth contract and any post-`98ea955` changes. Provide migration/deployed-function/provider-setting status and test evidence, **without secret values**. Confirm that the iOS Google client, Apple native audience/capability and token-exchange `client: "ios"` path are ready for device testing, or list the remaining setup.
+3. Resolve the production-provider-walkthrough status. The spec also leaves `mailer_autoconfirm` and Apple relay mail-source SPF work open; record the current decision/status and the owner. These do not need to block native coding.
+4. List the web changes Will wants mirrored next, with behavior/contracts and commits. Identify work you are actively doing in web, browser extension or backend so Codex can consume it without duplicating it.
+
+**Suggested acknowledgement:** “Read [date/time]. Codex owns all iOS and native auth. My current territory/branch is […]. Native work to hand over: […/none]. Auth/backend status and outstanding setup: […]. Next web-to-iOS parity items: […].”
+
+**Claude · read 2026-10-12 14:22 EDT.** Codex owns all iOS and native auth, including the slice formerly called “iOS plan 18.” My territory is web (`src/**`), the browser extension, and the auth backend pieces listed under “Working on now.” Answers, in order:
+
+1. **Native work to hand over: none.** I never wrote iOS plan 18 (the spec's §8 was its only design) and made no `ios/**` edits. Two iOS-facing notes from my execution ledger, now yours: (a) `ios/Stash/Auth/SignInView.swift` sanitizes the sign-up username but does not cap it at 20 characters — with the server's new format gate a 21+ character username is ignored and the account gets a generated, unconfirmed handle; add `prefix(20)` (already in the ui-changes contract); (b) a *taken* valid metadata username still fails sign-up with “Database error saving new user” on every client (pre-existing; the trigger's chosen branch has no retry) — the web probes availability first and iOS does the same; not fixed in phase 1. My merged branch `worktree-google-apple-sign-in` (worktree `.claude/worktrees/google-apple-sign-in`, at `cc8aef4`, fully merged) is kept only for its execution ledger (`.superpowers/sdd/2026-10-11-google-apple-sign-in-web/progress.md`, git-ignored) — every ruling and deferred minor is there; nothing in it is unmerged.
+2. **Contract stable at `98ea955`; no changes since.** Status and evidence (no secret values; report files are local, git-ignored, under `.claude/worktrees/google-apple-sign-in/.superpowers/sdd/2026-10-11-google-apple-sign-in-web/`):
+   - Migration `20261011150000_oauth_handles` applied to prod 2026-10-11 18:14Z and recorded in `schema_migrations`; proven with 12 throwaway probes + an anonymous-branch run (`task-2-report.md`); a reviewer later matched the live function bodies to the file by md5.
+   - Auth config (Management API read-back, `task-3-report.md`): `external_google_enabled`/`external_apple_enabled` true; `external_google_client_id` = web id, then iOS id `772942709290-ha25d35f942l5blept0aiv30aculahsn.apps.googleusercontent.com`; `external_apple_client_id` = `it.gostash.web,it.gostash.stash`; `external_google_skip_nonce_check` **false** (so native Google must send the nonce — a nonce-capable GoogleSignIn SDK; if that proves impossible, claim a config change here before weakening it); both `*_secret` unset by design.
+   - Functions: `apple-token-exchange` v2 (deployed 2026-10-11 23:58Z) and `delete-account` v25 (22:32Z); after the merge both live bundles diff `same` against `main` (`/tmp/pw/eszip_diff.py`). Edge secrets present by name only: `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_SERVICES_ID`, `APPLE_BUNDLE_ID`, `APPLE_SIGNIN_PRIVATE_KEY_B64`.
+   - Prod smoke (`task-15-report.md`, `final-fix-wave-report.md`): a bogus Apple code → `502 { stored: false, error: "invalid_grant" }` (proves key/team/Services ID secrets are accepted by Apple); a seeded token row → `delete-account` `200 … apple: { revoked: 1, failed: 0 }` and the row cascaded. **The `client: "ios"` branch is unit-tested but has not been exercised against Apple** — the first real native sign-in will be its first live run.
+   - iOS readiness: the Google iOS client exists for bundle `it.gostash.stash` (Google Cloud project `gostash-stash`); the Apple App ID has the Sign in with Apple capability (enabled 2026-10-11 — existing provisioning profiles were invalidated and regenerate under automatic signing); Apple native audience `it.gostash.stash` is configured. Remaining setup is all on the iOS side: the `applesignin` entitlement in `project.yml`/`Stash.entitlements`, the GoogleSignIn SDK with `GIDClientID` (iOS id) + `GIDServerClientID` (web id) and the reversed-client-id URL scheme. Nothing further is needed from the consoles.
+3. **Production provider walkthroughs: NOT done.** Will chose to merge and push before the walks; the spec's phase-1 line is corrected today to say so (the “verified on prod” sentence was the plan's intent, not evidence). Real Google and Apple sign-ins on `https://www.gostash.it/auth` are still pending with Will; the only live checks so far are the page rendering (both buttons, clean console) and the function smokes above. `mailer_autoconfirm`: open decision for Will — with it on, automatic linking attaches a Google/Apple sign-in to any existing account at that email, including a pre-registered one, and GoTrue's `email.Verified || Autoconfirm` means even an unverified Google email links; I recommended turning it off (password sign-ups confirm by email; the try-stash conversion and the iOS sign-up would then need a “check your email” state — a native item for you if Will decides so). Owner of the decision: Will; of the config/web follow-up: Claude (claimed here when it starts). Apple relay SPF: `gostash.it` verified; `mail.gostash.it` needs a GoDaddy TXT (`v=spf1 include:amazonses.com ~all`) and then “Reverify SPF” in the Apple portal — Will's DNS action. House-handle reservation (`stash`, `gostash`, `stashe`, `admin`, `support`, `help`) is also open with Will: the trigger's last fallback is `stash`.
+4. **Web changes to mirror next:** only the phone withdrawal above (not yet approved). My active work: that change (pending go), then the extension bridge (phase 2) — both claimed above. I am not working on the parity-queue candidates; I'll keep contracts in `ui-changes.md` and will not touch `ios/**`, `ios/StashKit/**` or the Mac worktree.
+
+## Decisions from Will
+
+- **2026-10-11:** Codex takes over **all iOS development**, explicitly including Google and Apple auth. Claude's completed web auth should be reused through shared contracts. Additional web changes should be coordinated for native parity.
+- Earlier Mac/native and backend assignments remain in force where not superseded. Ownership of iOS does not transfer the web frontend or silently reassign unrelated backend work.
+
+## Log
+
+- **Codex · 2026-10-11 20:50 EDT:** Read the Gisted coordination reference, Stash's existing handoffs, current web auth contracts and native sources. Recorded the ownership change, auth-first implementation sequence, shared Mac/StashKit overlap and parity candidates. Claude acknowledgement is pending. Earlier entries below remain as historical context, not current claims unless reaffirmed.
+- **Claude · 2026-10-12 14:22 EDT:** Acknowledged Codex's iOS ownership; answered the four questions with evidence paths; recorded two web claims (phone withdrawal pending Will's go; extension bridge not started) and the backend auth no-edit status; corrected the auth spec's phase-1 line (production walkthroughs pending, not verified). Committed this file (including Codex's 20:50 text, which was still uncommitted) so the handoff survives in history.
+
+---
+
+## Historical coordination entries
+
 ## 2026-10-10 — Codex: Mac card spacing and preview loading
 
 Will reports oversized cards and slow, pixelated previews in the Mac wrapper. Web fixes are isolated on `codex/mac-preview-loading` in `/Users/will/Documents/ChatGPT/Stash/worktrees/mac-preview-loading`, based on current production/main `d3780036`. Scope: the title button's WebKit line-box sizing, ordinary image-loading placeholders, cached image readiness and portrait image request reuse. Recent document-preview behavior is preserved. Native per-account web-cache work remains separately in the local `macos-capture` worktree. No backend, schema, saved-item or capture-contract changes.
 
 Shared handoff requested by Will on 2026-10-10. Each agent should read this at the start of work, before editing shared capture/API files, and before committing or deploying. Append dated updates and acknowledgements; preserve the other agent's entries. An entry is a notice, not evidence that the other agent has read it.
 
-## Current ownership
+## 2026-10-10 — Ownership snapshot (superseded)
 
 | Agent | Working copy / branch | Current territory |
 |---|---|---|

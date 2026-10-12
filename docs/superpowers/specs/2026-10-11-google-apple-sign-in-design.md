@@ -483,8 +483,8 @@ not-installed, failed (`lastError`), connected. `nonce.ts`, `extensionBridge.ts`
 
 **Phase 1 — backend + web + docs.** **SHIPPED 2026-10-11** (main `5d8de151`, Vercel live; `apple-token-exchange` v2, `delete-account` v25; the provider walks on production and the `mailer_autoconfirm` decision remain open). Migration applied and recorded; config PATCH + read-back;
 web change on this branch (`/auth` pair, nonce, handle step, gates, copy); DESIGN-v2 §12.14,
-`ui-changes.md`, `PLATFORM_API.md`, `config.toml`. Merge → push → Vercel. Verified on prod with
-the §11 provider walks.
+`ui-changes.md`, `PLATFORM_API.md`, `config.toml`. Merge → push → Vercel — done 2026-10-11. The §11 provider walks on production are still
+**pending** (2026-10-12): only the page rendering and the function smokes have been checked live.
 
 **Phase 2 — extension bridge.** Deploy `extension-session`; web `/extension/connect`; extension
 1.3.0 (key, `externally_connectable`, sign-in page, background handler); hosted zip re-published;
