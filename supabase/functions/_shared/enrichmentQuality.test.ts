@@ -5,6 +5,36 @@ const ig = 'https://www.instagram.com/reel/example/';
 const errorPage = "TikTok Log in Couldn't find this page Check out more trending videos on TikTok " + 'Company Careers About Privacy '.repeat(30);
 const youtube = 'https://www.youtube.com/watch?v=YGgNBcIgI4s';
 const youtubeFooter = '- YouTube About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy & Safety How YouTube works Test new features NFL Sunday Ticket &copy; 2026 Google LLC';
+describe('link preview quality', () => {
+  const article = {
+    type: 'link', url: 'https://community.openai.com/t/decisions-api-is-now-available-in-public-beta/1403877',
+    title: 'Decisions API is now available in public beta',
+    description: 'A public beta announcement describing the Decisions API.',
+    page_body: 'The Decisions API is now available in public beta. This article describes how to try the new API.',
+  };
+  it.each([
+    'https://community.openai.com/images/emoji/twitter/frowning.png?v=14',
+    'https://emoji.discourse-cdn.com/twitter/frowning.png?v=15',
+  ])('flags a known decorative remote preview without discarding valid article text: %s', file_path => {
+    const result = assessEnrichment({ ...article, file_path }, true);
+    expect(result).toMatchObject({ status: 'partial', card_usable: false, content_usable: true, index_state: 'present', reasons: ['invalid_preview'] });
+    expect(enrichmentSearchText({ ...article, file_path })).toContain(article.page_body);
+  });
+  it.each([
+    'https://community.openai.com/uploads/default/original/3X/a/b/announcement.jpg',
+    'https://people.example.com/avatar/alex.jpg',
+    'https://uqqsgmwkvslaomzxptnp.supabase.co/storage/v1/object/public/stash-media/owner/uploads/my-icon-art.jpg',
+    null,
+    'user-id/uploads/emoji/frowning.png',
+  ])('retains current completeness semantics for valid, absent or owned previews: %s', file_path => {
+    expect(assessEnrichment({ ...article, file_path }, true)).toMatchObject({ status: 'ready', card_usable: true, reasons: [] });
+  });
+  it('does not classify a user-saved image as an invalid article preview', () => {
+    expect(assessEnrichment({ type: 'image', title: 'Frowning emoji', description: 'A frowning emoji illustration.',
+      file_path: 'https://community.openai.com/images/emoji/twitter/frowning.png?v=14' }, true))
+      .toMatchObject({ status: 'ready', card_usable: true, reasons: [] });
+  });
+});
 describe('content quality regressions', () => {
   it('rejects LinkedIn signup bodies but preserves profiles with login chrome', () => {
     const url = 'https://www.linkedin.com/in/example/';

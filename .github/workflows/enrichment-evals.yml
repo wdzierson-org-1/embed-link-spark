@@ -42,6 +42,10 @@ jobs:
           src/utils/objectInteractions.test.ts
           src/utils/captureClient.test.ts
           src/components/edit/ObjectIntelligenceSection.test.tsx
+          supabase/functions/_shared/pagePreview.test.ts
+          supabase/functions/_shared/blockedContentFallbacks.test.ts
+          supabase/functions/_shared/enrichmentQuality.test.ts
+          supabase/functions/extract-link-metadata/index.test.ts
           supabase/functions/_shared/socialEnrichment.test.ts
           supabase/functions/_shared/tiktok.test.ts
           supabase/functions/add-url/index.test.ts

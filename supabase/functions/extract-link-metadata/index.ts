@@ -860,6 +860,11 @@ const rescueBlockedMetadata = async (
     // readable content contains the selected product's gallery. Rank that
     // content first; a fallback must pass the same URL/variant checks.
     const contentImage = previewImageCandidates({ url: originalUrl, text: jina.content, title: jina.title })[0];
+    // Explicit publisher metadata survives some reader failures that leave only
+    // discussion replies. It is separate from the unordered image inventory.
+    const publisherImage = !contentImage && jina.publisherImage && !/[\s<>\\]/.test(jina.publisherImage)
+      ? previewImageCandidates({ url: originalUrl, text: jina.content, publisherImage: jina.publisherImage })[0]
+      : undefined;
     // If Markdown exposed images and every one was rejected (for example,
     // Medium bylines), its first-image summary must not reintroduce them.
     const fallbackImage = !contentImage && !jina.content?.includes('![') && jina.image && !/[\s<>\\]/.test(jina.image)
@@ -867,12 +872,12 @@ const rescueBlockedMetadata = async (
       : undefined;
     // Medium's public author feed can expose this article's preview image
     // even when the reader only returns its public excerpt and byline.
-    const feedImage = !contentImage && !fallbackImage ? await fetchMediumFeedPreview(originalUrl) : null;
+    const feedImage = !contentImage && !publisherImage && !fallbackImage ? await fetchMediumFeedPreview(originalUrl) : null;
     return {
       title: jina.title,
       description: jina.description ||
         (jina.content ? deriveDescriptionFromContent(jina.content) : undefined),
-      image: contentImage || fallbackImage || feedImage || undefined,
+      image: contentImage || publisherImage || fallbackImage || feedImage || undefined,
       strategyUsed: feedImage ? 'jina-reader-rescue+medium-feed' : 'jina-reader-rescue',
     };
   }

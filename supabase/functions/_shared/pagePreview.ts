@@ -6,11 +6,24 @@ const attributes = (tag: string): Record<string, string> => Object.fromEntries(
 );
 const unrelated = /(?:favicon|\blogo\b|\bavatar\b|\bicon\b|\btracking\b|\bpixel\b|\brecommendation\b)/i;
 const relatedBoundary = /^(?:#{1,6}\s*)?(?:you may also like|style with|shop the look|complete the look|related (?:articles|products|posts)|recommended (?:for you|products)|more from this author)\s*$/im;
+/** Known inline reaction assets are not article art, even when a reader or
+ * publisher places one in an image summary. Match asset routes, not product
+ * names such as "emoji-print tote", and keep real profile portraits eligible. */
+export function isReactionImage(value: string): boolean {
+  try {
+    const image = new URL(value, 'https://example.com');
+    return image.hostname === 'emoji.discourse-cdn.com' ||
+      /^\/images\/emoji\//i.test(image.pathname) ||
+      /^\/plugins\/discourse-reactions\/images\//i.test(image.pathname);
+  } catch { return false; }
+}
+const isReactionMarkup = (attr: Record<string, string>): boolean =>
+  (attr.class || '').split(/\s+/).some(token => /^(?:emoji|custom-emoji|discourse-reactions-reaction)$/i.test(token));
 /** Recognisable site furniture is not evidence of the object being saved. */
 export function isPageChromeImage(value: string): boolean {
   try {
     const path = new URL(value, 'https://example.com').pathname;
-    return unrelated.test(path) || /(?:^|\/)(?:nav|navbar|navigation|header|footer)(?:\/|$)/i.test(path);
+    return isReactionImage(value) || unrelated.test(path) || /(?:^|\/)(?:nav|navbar|navigation|header|footer)(?:\/|$)/i.test(path);
   } catch { return false; }
 }
 const words = (value: string) => [...new Set(value.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 3))];
@@ -129,7 +142,7 @@ function markdownImages(text: string): Array<{ url: string; alt: string; linkUrl
 
 /** Ordered, bounded candidates associated with this object; never arbitrary page-wide images. */
 export interface PreviewImageEvidence { url: string; associated: boolean; }
-export function previewImageEvidence(input: { url: string; html?: string; text?: string; title?: string }): PreviewImageEvidence[] {
+export function previewImageEvidence(input: { url: string; html?: string; text?: string; title?: string; publisherImage?: string }): PreviewImageEvidence[] {
   if (!isPublicPreviewUrl(input.url)) return [];
   const html = (input.html || '').slice(0, 1_500_000);
   const text = (input.text || '').slice(0, 100_000).split(relatedBoundary)[0];
@@ -161,6 +174,9 @@ export function previewImageEvidence(input: { url: string; html?: string; text?:
     if (typeof value !== 'string' || value.length > MAX_IMAGE_URL_LENGTH || !value.trim() || unrelated.test(value)) return;
     try {
       const resolved = new URL(decode(value.trim()), input.url);
+      // A metadata fallback cannot undo an explicit byline association in the
+      // readable body merely by presenting the same asset without its link.
+      if (readerImages.some(image => mediumBylineImage(image) && new URL(image.url, input.url).href === resolved.href)) return;
       const filename = resolved.pathname.split('/').pop()?.toLowerCase() || '';
       // Salesforce Commerce URLs explicitly bind a product id to its colour.
       // Enforce that relationship only where the observed filename encodes it.
@@ -176,6 +192,7 @@ export function previewImageEvidence(input: { url: string; html?: string; text?:
       if (isPublicPreviewUrl(resolved.href) && !isPageChromeImage(resolved.href) && !undersizedMediumCrop(resolved) && !undersizedAmplienceImage(resolved)) candidates.push({ url: resolved.href, alt, priority, associated });
     } catch { /* Invalid publisher URL is not an image candidate. */ }
   };
+  add(input.publisherImage, '', 0);
   for (const tag of html.match(/<meta\b[^>]*>/gi) || []) {
     const attr = attributes(tag);
     if (/^(?:og:image(?::secure_url|:url)?|twitter:image(?::src)?)$/i.test(attr.property || attr.name || '')) {
@@ -282,6 +299,7 @@ export function previewImageEvidence(input: { url: string; html?: string; text?:
   const withPictures = scoped.replace(/<picture\b[^>]*>([\s\S]*?)<\/picture>/gi, (_all, body: string) => {
     const img = body.match(/<img\b[^>]*>/i)?.[0] || '';
     const attr = attributes(img);
+    if (isReactionMarkup(attr)) return '';
     for (const source of body.match(/<source\b[^>]*>/gi) || []) {
       for (const image of srcsetImages(attributes(source).srcset)) add(image, attr.alt || '', 2);
     }
@@ -289,6 +307,7 @@ export function previewImageEvidence(input: { url: string; html?: string; text?:
   });
   for (const tag of withPictures.match(/<img\b[^>]*>/gi) || []) {
     const attr = attributes(tag);
+    if (isReactionMarkup(attr)) continue;
     if ((attr.width && Number(attr.width) < 100) || (attr.height && Number(attr.height) < 60)) continue;
     for (const image of [...srcsetImages(attr.srcset || attr['data-srcset']), attr['data-src'], attr.src]) add(image, attr.alt || '', 2);
   }

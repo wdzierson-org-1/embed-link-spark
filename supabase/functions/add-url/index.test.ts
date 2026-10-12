@@ -5,7 +5,7 @@ const state = vi.hoisted(() => ({
   handler: null as any,
   row: null as any,
   background: [] as Promise<unknown>[],
-  rpc: vi.fn(), invoke: vi.fn(), tiktok: vi.fn(),
+  rpc: vi.fn(), invoke: vi.fn(), tiktok: vi.fn(), upload: vi.fn(),
 }));
 vi.mock('https://esm.sh/@supabase/supabase-js@2.50.2', () => ({
   createClient: () => ({
@@ -15,7 +15,7 @@ vi.mock('https://esm.sh/@supabase/supabase-js@2.50.2', () => ({
       select: () => ({ eq: () => ({ single: async () => ({ data: structuredClone(state.row), error: null }) }) }),
     }),
     rpc: state.rpc, functions: { invoke: state.invoke },
-    storage: { from: () => ({ upload: async () => ({ error: null }) }) },
+    storage: { from: () => ({ upload: state.upload }) },
   }),
 }));
 vi.mock('../_shared/agentToken.ts', () => ({ isAgentToken: () => false }));
@@ -34,6 +34,8 @@ beforeAll(async () => {
 });
 beforeEach(() => {
   vi.clearAllMocks(); state.row = null; state.background = [];
+  vi.mocked(fetch).mockResolvedValue(new Response('Unavailable', { status: 503 }));
+  state.upload.mockResolvedValue({ error: null });
   state.tiktok.mockResolvedValue(null);
   state.invoke.mockImplementation(async (name: string) => ({ data: name === 'extract-link-metadata' ? {
     title: 'Alpine Jacket', description: 'A navy wool jacket with a removable insulated hood.',
@@ -44,7 +46,10 @@ beforeEach(() => {
       // The real RPC compares every field in itemSnapshot, including attributes.
       // Model that persistence boundary, rather than mocking applyCandidate success.
       const matches = Object.entries(args.expected).every(([key, value]) => JSON.stringify(state.row[key] ?? null) === JSON.stringify(value));
-      if (matches) Object.assign(state.row, structuredClone(args.patch));
+      if (matches) {
+        const protectedFields = state.row.attributes?.enrichment?.protected_fields || {};
+        Object.assign(state.row, structuredClone(Object.fromEntries(Object.entries(args.patch).filter(([key]) => protectedFields[key] !== true))));
+      }
       return { data: matches, error: null };
     }
     if (name === 'set_item_object_facts') {
@@ -106,6 +111,72 @@ describe('add-url product facts and preview persistence', () => {
     expect((await save({ title: 'My winter shortlist' })).status).toBe(200);
     expect(state.row).toMatchObject({ title: 'My winter shortlist', file_path: 'owner-1/previews/alpine.jpg', attributes: { enrichment: { protected_fields: { title: true } }, object_facts: { kind: 'product' } } });
     expect(state.rpc.mock.calls.find(([name]) => name === 'apply_enrichment_patch')?.[1].patch).not.toHaveProperty('title');
+  });
+});
+
+describe('add-url forum reaction previews', () => {
+  const url = 'https://community.openai.com/t/decisions-api-is-now-available-in-public-beta/1403877';
+  const emoji = 'https://emoji.discourse-cdn.com/twitter/frowning.png?v=15';
+  const primary = 'https://us1.discourse-cdn.com/openai1/original/4X/d/8/c/d8cf6e3a0407f847f9785a3f45949a8bad13bf73.jpeg';
+  const metadata = { title: 'Decisions API is now available in public beta', description: 'The Decisions API public beta announcement.' };
+  const pageWith = (image?: string) => new Response(`<title>${metadata.title}</title><meta name="description" content="${metadata.description}">${image ? `<meta property="og:image" content="${image}">` : ''}`);
+  const imageResponse = () => new Response(new Uint8Array(1000), { headers: { 'content-type': 'image/jpeg' } });
+
+  it('never downloads or stores a quick reaction preview and uses the deeper article preview', async () => {
+    vi.mocked(fetch).mockImplementation(async target => String(target) === url ? pageWith(emoji) : imageResponse());
+    state.invoke.mockImplementation(async name => ({ data: name === 'extract-link-metadata' ? { ...metadata, previewImagePath: 'owner-1/previews/article.jpg', image: primary } : { success: true }, error: null }));
+    const response = await save({ url });
+    expect(response.status).toBe(200);
+    expect(state.row.file_path).toBe('owner-1/previews/article.jpg');
+    expect(fetch).not.toHaveBeenCalledWith(emoji, expect.anything());
+    expect(state.upload).not.toHaveBeenCalled();
+    expect((await response.json()).item.metadata.image).toBeUndefined();
+  });
+
+  it.each(['image', 'previewImagePath', 'previewImagePublicUrl'])('does not accept a reaction URL in the deep %s field', async field => {
+    vi.mocked(fetch).mockImplementation(async target => String(target) === url ? pageWith() : imageResponse());
+    state.invoke.mockImplementation(async name => ({ data: name === 'extract-link-metadata' ? { ...metadata, [field]: emoji } : { success: true }, error: null }));
+    expect((await save({ url })).status).toBe(200);
+    expect(state.row.file_path).toBeNull();
+    expect(fetch).not.toHaveBeenCalledWith(emoji, expect.anything());
+    expect(state.upload).not.toHaveBeenCalled();
+  });
+
+  it('replaces a known remote reaction with a verified article image through snapshot protection', async () => {
+    vi.mocked(fetch).mockImplementation(async target => String(target) === url ? pageWith() : imageResponse());
+    state.invoke.mockImplementation(async name => {
+      if (name === 'extract-link-metadata') {
+        // Model an earlier worker's bad preview landing before this deep pass reads the row.
+        state.row.file_path = emoji;
+        return { data: { ...metadata, image: primary }, error: null };
+      }
+      return { data: { success: true }, error: null };
+    });
+    expect((await save({ url })).status).toBe(200);
+    expect(state.row.file_path).toBe(primary);
+    expect(fetch).toHaveBeenCalledWith(primary, expect.anything());
+    expect(state.rpc.mock.calls.find(([name]) => name === 'apply_enrichment_patch')?.[1]).toMatchObject({ expected: { file_path: emoji }, patch: { file_path: primary } });
+  });
+
+  it.each([
+    { label: 'user-protected reaction', image: emoji, protected: true },
+    { label: 'valid publisher image', image: 'https://images.example/valid-article.jpg', protected: false },
+    { label: 'owned user image', image: 'owner-1/uploads/my-image.jpg', protected: true },
+  ])('preserves the $label during the deep pass', async example => {
+    vi.mocked(fetch).mockImplementation(async target => String(target) === url ? pageWith() : imageResponse());
+    state.invoke.mockImplementation(async name => {
+      if (name === 'extract-link-metadata') {
+        state.row.file_path = example.image;
+        if (example.protected) state.row.attributes.enrichment.protected_fields = { file_path: true };
+        return { data: { ...metadata, image: primary }, error: null };
+      }
+      return { data: { success: true }, error: null };
+    });
+    expect((await save({ url })).status).toBe(200);
+    expect(state.row.file_path).toBe(example.image);
+    for (const [name, args] of state.rpc.mock.calls) {
+      if (name === 'apply_enrichment_patch') expect(args.patch).not.toHaveProperty('file_path');
+    }
   });
 });
 
