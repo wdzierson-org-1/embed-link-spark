@@ -1,5 +1,56 @@
 import { describe, expect, it } from 'vitest';
-import { previewImageCandidates, previewImageEvidence } from './pagePreview';
+import { isPageChromeImage, previewImageCandidates, previewImageEvidence } from './pagePreview';
+
+describe('forum preview decorations', () => {
+  const url = 'https://community.openai.com/t/decisions-api-is-now-available-in-public-beta/1403877';
+  const title = 'Decisions API is now available in public beta';
+  const primary = 'https://us1.discourse-cdn.com/openai1/original/4X/d/8/c/d8cf6e3a0407f847f9785a3f45949a8bad13bf73.jpeg';
+  const emoji = 'https://emoji.discourse-cdn.com/twitter/frowning.png?v=15';
+
+  it.each([
+    emoji,
+    'https://community.openai.com/images/emoji/twitter/frowning.png?v=15',
+    'https://community.openai.com/plugins/discourse-reactions/images/heart.png',
+  ])('rejects the decorative asset in every candidate channel: %s', image => {
+    expect(isPageChromeImage(image)).toBe(true);
+    expect(previewImageCandidates({ url, title, text: `![${title}](${image})` })).toEqual([]);
+    expect(previewImageCandidates({ url, title, html: `<meta property="og:image" content="${image}"><meta name="twitter:image" content="${image}">` })).toEqual([]);
+    expect(previewImageCandidates({ url, title, html: `<article><img src="${image}" alt="${title}"></article>` })).toEqual([]);
+    expect(previewImageCandidates({ url, title, html: `<script type="application/ld+json">${JSON.stringify({ '@type': 'Article', url, headline: title, image })}</script>` })).toEqual([]);
+  });
+
+  it('does not turn a comments-only reader capture into a preview', () => {
+    expect(previewImageCandidates({ url, title, text: `# ${title}\nA reply to the topic\n![frowning](${emoji})\nAnother reply` })).toEqual([]);
+  });
+
+  it('retains the article image when reactions precede or follow it', () => {
+    for (const text of [`![frowning](${emoji})\n![image](${primary})`, `![image](${primary})\n![frowning](${emoji})`]) {
+      expect(previewImageCandidates({ url, title, text })).toEqual([primary]);
+    }
+    expect(previewImageCandidates({ url, title, html: `<meta property="og:image" content="${primary}"><article><img src="${primary}" width="1024" height="576"><img class="emoji" src="${emoji}" width="20" height="20"></article>` })).toEqual([primary]);
+  });
+
+  it.each(['emoji', 'custom-emoji', 'discourse-reactions-reaction'])('rejects an opaque URL identified by the exact %s HTML class', className => {
+    expect(previewImageCandidates({ url, title, html: `<article><picture><source srcset="https://assets.example/opaque-large.png 2x"><img class="inline ${className}" src="https://assets.example/opaque.png" alt="${title}"></picture><img src="${primary}" width="1024" height="576"></article>` })).toEqual([primary]);
+  });
+
+  it('rejects explicit 20px reaction images even on an otherwise unknown host', () => {
+    expect(previewImageCandidates({ url, html: `<article><img width="20" height="20" src="https://assets.example/opaque.png"><img src="${primary}" width="1024" height="576"></article>` })).toEqual([primary]);
+  });
+
+  it('keeps genuine products named for emoji or reactions and source-bound portraits', () => {
+    const product = 'https://shop.example/products/emoji-reaction-tote.jpg';
+    expect(isPageChromeImage(product)).toBe(false);
+    expect(previewImageCandidates({ url: 'https://shop.example/products/emoji-reaction-tote', title: 'Emoji Reaction Tote', html: `<article><img class="product-emoji-design" src="${product}" alt="Emoji Reaction Tote"></article>` })).toEqual([product]);
+    const portrait = 'https://media.licdn.com/dms/image/v2/person/profile-displayphoto-shrink_200_200/photo.jpg';
+    expect(isPageChromeImage(portrait)).toBe(false);
+    expect(previewImageCandidates({ url: 'https://www.linkedin.com/in/person/', html: `<script type="application/ld+json">${JSON.stringify({ '@type': 'Person', url: 'https://www.linkedin.com/in/person/', name: 'A Person', image: portrait })}</script>` })).toEqual([portrait]);
+    const forumProfile = 'https://community.openai.com/u/person';
+    const forumPortrait = 'https://us1.discourse-cdn.com/openai1/user_avatar/community.openai.com/person/96/12345.png';
+    expect(isPageChromeImage(forumPortrait)).toBe(false);
+    expect(previewImageCandidates({ url: forumProfile, html: `<script type="application/ld+json">${JSON.stringify({ '@type': 'Person', url: forumProfile, name: 'A Person', image: forumPortrait })}</script>` })).toEqual([forumPortrait]);
+  });
+});
 
 describe('associated page images', () => {
   it.each(['Person', 'ProfilePage'])('recovers the source-bound %s profile portrait', type => {

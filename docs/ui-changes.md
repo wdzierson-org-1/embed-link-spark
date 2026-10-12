@@ -8,6 +8,16 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-11 · Forum reactions cannot become link previews
+
+- **Contract (all platforms):** known Discourse emoji/reaction URLs are rejected during preview selection, quick capture downloads, and deep metadata. A previously saved remote reaction may be replaced by a verified article image through the existing snapshot and protected-field write guard. User-selected images and valid previews remain preserved.
+- **Reader fallback:** when readable text loses the original post, the requested page's explicit Open Graph/Twitter image can supply its cover. The reader's unordered image inventory is not treated as publisher metadata. Missing image evidence still yields a limited preview.
+- **Quality dashboard:** link assessments now report `invalid_preview` and `card_usable: false` for known remote reaction assets. Usable article text remains indexed. No broad reclassification of saved images, no quality-version bump or automatic historical replay.
+- **Limits:** this is deterministic URL/markup validation, not a visual similarity judge. Hosted text audits still need displayed-asset evidence before they can judge arbitrary incorrect pictures. Added the reported forum failure and correct-cover control to the release gate.
+- **Implementation:** `_shared/pagePreview.ts`, `_shared/blockedContentFallbacks.ts`, `_shared/enrichmentQuality.ts`, `extract-link-metadata`, `add-url`. No native or web rendering changes are needed.
+
+---
+
 ## 2026-10-11 · Google and Apple sign-in; generated handles confirmed once
 
 Will: "let's get google and apple sign up implemented." Spec:

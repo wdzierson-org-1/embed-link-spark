@@ -47,6 +47,14 @@ describe('legacy metadata endpoint product image selection', () => {
     const result = await (await state.handler(request(false, 'https://medium.com/@ifader/alighting-on-english-renaissance-poetry-f8a9e1dcf515'))).json();
     expect(result.image).toBeUndefined();
   });
+  it('does not reintroduce a rejected byline through explicit publisher metadata', async () => {
+    const author = 'https://miro.medium.com/v2/resize:fill:128:128/1*author.jpeg';
+    state.fetcher.mockResolvedValue(new Response('Unavailable', { status: 403 }));
+    state.jina = { title: 'Alighting on English Renaissance Poetry', publisherImage: author,
+      content: `[![Ira Fader](${author})](https://medium.com/@ifader)\nCreate an account to read the full story.` };
+    const result = await (await state.handler(request(false, 'https://medium.com/@ifader/alighting-on-english-renaissance-poetry-f8a9e1dcf515'))).json();
+    expect(result.image).toBeUndefined();
+  });
   it('uses an exact public Medium feed image when reader metadata has no article image', async () => {
     const source = 'https://medium.com/@ifader/alighting-on-english-renaissance-poetry-f8a9e1dcf515';
     const articleImage = 'https://cdn-images-1.medium.com/max/1075/0*article.jpeg';
@@ -103,4 +111,29 @@ describe('legacy metadata endpoint product image selection', () => {
     expect(result.image).toBe(expected);
   });
 
+});
+
+
+describe('forum article preview regression', () => {
+  const source = 'https://community.openai.com/t/decisions-api-is-now-available-in-public-beta/1403877';
+  const article = 'https://us1.discourse-cdn.com/openai1/optimized/4X/d/8/c/d8cf6e3a0407f847f9785a3f45949a8bad13bf73_2_1024x576.jpeg';
+  const emoji = 'https://emoji.discourse-cdn.com/twitter/frowning.png?v=15';
+  it('keeps the article Open Graph image when replies contain reactions', async () => {
+    state.html = `<title>Decisions API is now available in Public Beta</title><meta property="og:image" content="${article}"><main><p>API launch announcement.</p><img class="emoji" width="20" height="20" src="${emoji}"></main>`;
+    const result = await (await state.handler(request(true, source))).json();
+    expect(result.image).toBe(article);
+  });
+  it('never promotes a reply emoji or a summary logo when the reader loses article content', async () => {
+    state.fetcher.mockResolvedValue(new Response('Unavailable', { status: 403 }));
+    state.jina = { title: 'Decisions API is now available in Public Beta', image: 'https://example.com/logo.png', content: `## Reply\nIs the SDK available? ![:frowning:](${emoji})` };
+    const result = await (await state.handler(request(false, source))).json();
+    expect(result).toMatchObject({ success: true, strategyUsed: 'jina-reader-rescue' });
+    expect(result.image).toBeUndefined();
+  });
+  it('recovers the publisher image even when reader Markdown exposes only a reaction', async () => {
+    state.fetcher.mockResolvedValue(new Response('Unavailable', { status: 403 }));
+    state.jina = { title: 'Decisions API is now available in Public Beta', image: 'https://example.com/logo.png', publisherImage: article, content: `## Reply\nIs the SDK available? ![:frowning:](${emoji})` };
+    const result = await (await state.handler(request(false, source))).json();
+    expect(result.image).toBe(article);
+  });
 });
