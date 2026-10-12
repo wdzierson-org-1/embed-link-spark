@@ -143,10 +143,16 @@ what shipped.*
     sign-ups racing for the same base both succeed.
 - **The confirm step** (web §6.3, iOS §8): shown when the signed-in person's profile has
   `handle_confirmed = false`. Prefilled with the first available of: a name-derived suggestion
-  (when the client learned a name — Google always, Apple on first authorization; lower-cased,
-  stripped to `[a-z0-9]`, cut to 20, used when 3 or more characters remain); the server's handle,
-  when it is 3–20 letters and numbers (a `guest-…` handle is never offered); the email local part,
-  sanitized the same way (never a `privaterelay.appleid.com` one); else empty. **Continue**
+  (when the client learned a name — Google always, Apple on first authorization; accents folded
+  first — NFKD, combining marks dropped, so `José García` → `josegarcia` — then lower-cased,
+  stripped to `[a-z0-9]`, cut to 20, used when 3 or more characters remain); the email local
+  part, sanitized the same way (never a `privaterelay.appleid.com` one); the server's handle, when
+  it is 3–20 letters and numbers (a `guest-…` handle is never offered); else empty. The email
+  outranks the server's handle: a name that sanitizes to nothing (a non-Latin one) leaves the
+  trigger a digit-padded handle where the email still says something. When the live check finds
+  the untouched prefill taken (the trigger deduped it: `johnsmith` → `johnsmith2`), the field
+  silently becomes the server's handle — the person's own row, so no probe and no error — when it
+  is 3–20 letters and numbers; a typed handle that is taken keeps the error. **Continue**
   (disabled under 3 characters) writes `username` (if changed) and `handle_confirmed = true`
   through the owner `UPDATE` policy and — when the current `display_name` is still the server
   fallback (null/empty, equal to the old handle, or equal to the email local part, §4.4) — also

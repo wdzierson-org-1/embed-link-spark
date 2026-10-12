@@ -1001,12 +1001,15 @@ homepage.")
   `or with your email` in the machine voice. Scripts load on this page only; a blocked one collapses
   its slot. The bar says `| signing in…` while a provider token is with Supabase.
 - **The handle step:** `stash://handle`, "Claim your address.", `> one more thing. pick your handle.`
-  Prefilled (a name-derived handle, else the server's when it is 3–20 letters and numbers, else the
-  email's local part; full order in docs/ui-changes.md 2026-10-11), the sign-up username field, the
-  feed-address helper, one ink **Continue** (`claiming…`). Shown once, to anyone whose handle the
-  server generates from this release on, and to converted guests (whose `guest-…` handle is never
-  offered as the prefill); Continue with the prefill is the skip. Errors:
-  `✕ that username is taken. try another.`, `✕ 3–20 letters and numbers.`
+  Prefilled (a name-derived handle, else the email's local part unless it is an Apple relay
+  address, else the server's when it is 3–20 letters and numbers; accents fold into their letters,
+  `José` → `jose`; full order in docs/ui-changes.md 2026-10-11), the sign-up username field, the
+  feed-address helper, one ink **Continue** (`claiming…`). A prefill that turns out to be taken
+  quietly becomes the server's handle (the person's own), with no error; one the person typed
+  shows the error. Shown once, to anyone whose handle the server generates from this release on,
+  and to converted guests (whose `guest-…` handle is never offered as the prefill); Continue with
+  the prefill is the skip. Errors: `✕ that username is taken. try another.`,
+  `✕ 3–20 letters and numbers.`
 - **One ink button,** full width, its label left and an arrow right; at work it shows the turning
   cursor and `signing in…` / `creating your stash…` / `sending…` / `updating…`. Quiet actions are
   machine-voice text: `forgot password?` beside the password label, `back to sign in`.

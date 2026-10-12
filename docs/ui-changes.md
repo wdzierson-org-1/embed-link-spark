@@ -40,12 +40,23 @@ Will: "let's get google and apple sign up implemented." Spec:
 - **Contract: the handle step.** The first surface that reads `handle_confirmed = false` on a
   real (non-anonymous) account shows it, and keeps showing it until the person continues. The
   field starts with the first of: a name the provider gave us (Apple's first-authorization name;
-  Google's `full_name` / `name`; lower-cased, stripped to `[a-z0-9]`, cut to 20, used when 3 or
-  more characters remain) → the server's handle, when it matches the format (never a `guest-…`
-  one) → the email local part, sanitized the same way, unless the address is
-  `@privaterelay.appleid.com` → empty. Same validation and live availability check as the
-  sign-up username field (`user_profiles` is publicly readable; the person's own row never counts
-  as taken). **Continue** is disabled under 3 characters; it writes, in one `user_profiles`
+  Google's `full_name` / `name`; accents folded first — NFKD, then the combining marks
+  U+0300–U+036F dropped, so `José García` → `josegarcia` — then lower-cased, stripped to
+  `[a-z0-9]`, cut to 20, used when 3 or more characters remain) → the email local part,
+  sanitized the same way, unless the address is `@privaterelay.appleid.com` → the server's
+  handle, when it matches the format (never a `guest-…` one) → empty. The email comes before the
+  server's handle because a name that sanitizes to nothing (a non-Latin one) leaves the server a
+  digit-padded handle (`123`) where the email still says `ivanpetrov`. Typing in this field and in
+  the sign-up username field is sanitized the same way, accents folded. Same validation and live
+  availability check as the sign-up username field (`user_profiles` is publicly readable; the
+  person's own row never counts as taken). When the check finds the **untouched** prefill taken
+  (`johnsmith` is someone else's, which is why the server named this person `johnsmith2`), the
+  field silently becomes the server's handle, with no error and no probe (that handle is the
+  person's own row), provided it matches the format; a `guest-…` one is never offered, so the
+  error stays. A handle the person typed that is taken keeps
+  `✕ that username is taken. try another.` iOS: the same order, the same folding
+  (`decomposedStringWithCompatibilityMapping`, then drop the scalars U+0300–U+036F) and the same
+  silent fallback. **Continue** is disabled under 3 characters; it writes, in one `user_profiles`
   update, `username` + `handle_confirmed = true` and — when the current `display_name` is the
   server fallback (null/empty, equal to the old handle, or equal to the email local part) — also
   `display_name = <the new handle>`; a name the person has is never overwritten, and a failed

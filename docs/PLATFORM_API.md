@@ -599,7 +599,9 @@ and the call can simply be retried:
       "apple": { "revoked": 1, "failed": 0 } }
 401 { "error": "Invalid or expired token" }
 403 { "error": "Agent tokens cannot delete an account" }
-500 { "deleted": false, "error": "<step>: <reason>" }   ← nothing irreversible happened
+500 { "deleted": false, "error": "<step>: <reason>" }
+      ← the account is intact; Stripe cancellations, removed files and Apple
+        revocations that already ran are not undone — call again
 ```
 
 `apple.revoked` counts the stored tokens whose revoke Apple answered with 2xx. That
@@ -615,10 +617,11 @@ After `200` the JWT is dead server-side: clients drop the local session
 
 ### `POST /apple-token-exchange` — keep Apple's refresh token for revocation
 
-Standard auth headers (agent tokens refused). Body `{ "code": "<Apple authorization code>",
-"client": "web" | "ios" }` — `web` = the Services ID audience with return URL
-`https://www.gostash.it/auth`, `ios` = the bundle id. `200 { stored: true }`; `400` bad body;
-`401` no or invalid session; `403` agent token; `405` not a `POST`; `502 { stored: false, error }`
+Standard auth headers (agent tokens and anonymous sessions refused). Body
+`{ "code": "<Apple authorization code>", "client": "web" | "ios" }` — `web` = the Services ID
+audience with return URL `https://www.gostash.it/auth`, `ios` = the bundle id. `200 { stored: true }`;
+`400` bad body; `401` no or invalid session; `403` agent token, or `403 { error: 'anonymous' }` for
+an anonymous (try-stash) session; `405` not a `POST`; `502 { stored: false, error }`
 when Apple refuses (expired or reused code: `invalid_grant`); `500 { stored: false, error }` on any
 server-side failure (missing secrets, unreachable Apple, failing to store the token row). Call it
 immediately after `signInWithIdToken` — Apple's code lives five minutes and works once — and never
