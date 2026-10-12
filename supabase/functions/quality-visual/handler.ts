@@ -64,8 +64,10 @@ export function createVisualHandler({ db, auth, env, fetcher = fetch, inspect = 
     const monitorOwner = env('QUALITY_CANARY_USER_ID') || '';
     let cleaned = 0;
     let cleanupPending = 0;
+    let orphansRemoved = 0;
     if (UUID.test(monitorOwner)) {
       try {
+        const ownedPreviewPattern = new RegExp(`^${monitorOwner}/previews/preview_[0-9]+\\.(?:jpe?g|png|webp|gif|avif|heic)$`);
         const rows = await call('list_hosted_visual_cleanup');
         if (!Array.isArray(rows)) throw new Error('invalid_cleanup_rows');
         // Different registered jobs can clean up independently. The SQL delete
@@ -85,7 +87,7 @@ export function createVisualHandler({ db, auth, env, fetcher = fetch, inspect = 
             },
           });
           const ownedPreview = typeof row.file_path === 'string' &&
-            new RegExp(`^${monitorOwner}/previews/preview_[0-9]+\\.(?:jpe?g|png|webp|gif|avif|heic)$`).test(row.file_path);
+            ownedPreviewPattern.test(row.file_path);
           // A referenced owned asset stays pending. Missing/remote/non-preview
           // paths were never eligible for removal and need no storage operation.
           if (result.deleted && (result.preview === 'removed' || !ownedPreview)) {
@@ -93,9 +95,34 @@ export function createVisualHandler({ db, auth, env, fetcher = fetch, inspect = 
             else cleanupPending++;
           } else cleanupPending++;
         }));
+        // Capture can produce intermediate previews that never become an
+        // item's selected file_path. The service-only listing enforces the
+        // 24-hour grace period; recheck ownership and references before removal.
+        const orphans = await call('list_hosted_visual_orphans');
+        if (!Array.isArray(orphans)) throw new Error('invalid_orphan_rows');
+        const seen = new Set<string>();
+        const eligible = await Promise.all(orphans.slice(0, 20).map(async row => {
+          const path = row?.file_path;
+          if (typeof path !== 'string' || !ownedPreviewPattern.test(path)) { cleanupPending++; return null; }
+          if (seen.has(path)) return null;
+          seen.add(path);
+          try {
+            if (await call('hosted_visual_preview_referenced', { preview_path: path }) === false) return path;
+          } catch { /* a failed lookup cannot authorize deletion */ }
+          cleanupPending++;
+          return null;
+        }));
+        const paths = eligible.filter((path): path is string => path !== null);
+        if (paths.length) {
+          try {
+            const removed = await bounded(db.storage.from('stash-media').remove(paths));
+            if ((removed as any).error) cleanupPending += paths.length;
+            else orphansRemoved += paths.length;
+          } catch { cleanupPending += paths.length; }
+        }
       } catch { cleanupPending++; }
     }
-    const cleanup = { cleaned, pending: cleanupPending };
+    const cleanup = { cleaned, pending: cleanupPending, orphans_removed: orphansRemoved };
     if (env('QUALITY_VISUAL_ENABLED') !== 'true') return json(200, { status: 'disabled', cleanup });
 
     const scope = [...new Set((env('QUALITY_REPORT_SCOPE_USER_IDS') ?? env('QUALITY_SCOPE_USER_IDS') ?? '')

@@ -115,7 +115,9 @@ Canary deletion requires its registered job, dedicated owner, private visibility
 settlement and expected image path. A media-cleanup tombstone survives item
 removal so the next wake can retry failed storage deletion. Only unreferenced
 owned generated preview paths are removed. Ordinary user items, remote images
-and approved references are never cleanup targets. Monitoring records have a
+and approved references are never cleanup targets. A bounded sweep also removes up to 20 intermediate generated previews per wake
+from that dedicated account, only after 24 hours and only while unreferenced.
+Monitoring records have a
 35-day retention window; outstanding canary cleanup is retained for retry.
 
 To stop new checks and paid work, set `QUALITY_VISUAL_ENABLED=false`. Keep the
