@@ -32,7 +32,7 @@ flowchart TD
   Findings --> Validate[Validate schema, scope, evidence and lease]
   Validate --> Results[Durable results]
   Results --> Daily[Daily report outbox]
-  Daily --> Will[will@gostashit.com]
+  Daily --> Will[will@gostash.it]
   Results -. evaluated proposal .-> Playbook[Versioned playbook and regression cases]
   Playbook -. approved release .-> Enrich
 ```

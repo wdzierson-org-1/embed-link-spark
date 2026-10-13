@@ -23,7 +23,8 @@ history was repaired and no unrelated migrations were applied.
 
 The pilot is scoped to Will's existing Stash account. `QUALITY_RESEARCH_ENABLED`
 is now true: one daily live page investigation supplements hourly snapshot audits.
-The daily recipient is `will@gostashit.com`; the sender uses Stash's
+The daily recipient is `will@gostash.it` (corrected on 2026-10-13 through
+`QUALITY_REPORT_RECIPIENT`); the sender uses Stash's
 existing Resend configuration. The dispatcher runs every five minutes to wake
 work and retry the outbox, with one unique audit job per UTC hour. The daily
 report covers the previous America/New_York day and is prepared after 09:00.
