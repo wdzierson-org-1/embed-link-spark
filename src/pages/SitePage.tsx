@@ -9,7 +9,7 @@ import { useEffect } from 'react';
  * If the app was booted at one of these paths in production, the server handed it the page the
  * static site should have answered with; reloading would loop, so it says so instead.
  */
-export const SITE_PAGES = { contact: '/contact', terms: '/terms', privacy: '/privacy' } as const;
+export const SITE_PAGES = { contact: '/contact', support: '/support', terms: '/terms', privacy: '/privacy' } as const;
 export type SitePageName = keyof typeof SITE_PAGES;
 
 const BOOT_PATH = typeof window === 'undefined' ? '/' : window.location.pathname;

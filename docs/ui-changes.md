@@ -8,6 +8,34 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-12 · Privacy policy rewritten from a source audit; new /support page; "report content" on /contact (DRAFT until Will approves)
+
+App Store follow-through, AS-POLICY (`docs/agent-coordination.md`). The facts come from
+`docs/privacy/2026-10-12-data-processing-inventory.md` (every statement has a code reference);
+nothing promises a retention period or a provider guarantee the code cannot back.
+
+- **Contract (all platforms):** the public support address is `https://www.gostash.it/support`
+  (App Store Connect "Support URL"); the privacy policy is `https://www.gostash.it/privacy`; both
+  share `hello@gostash.it`. **iOS (Codex):** point the Settings support row / pre-auth Support link
+  at `/support`; keep Privacy and Terms links as they are. Nothing else changes for clients.
+- **/privacy (rewritten):** what is collected (incl. provider profile fields, the Apple revocation
+  token, location pins and automatic place lookup, Ask conversations, logs, local storage); how it is
+  used (automatic processing + scheduled re-checks, optional quality checks, operator access that is
+  logged); the full processor list (~20 services, incl. Google sign-in/Fonts, Apple, Mapbox,
+  BigDataCloud, Resend, Jina, Internet Archive, SearchApi, TranscriptFetch, allorigins.win,
+  Microsoft's viewer, embed hosts, MCP apps); what other people can see (public feed, share links,
+  world-readable profiles and follows, files at unguessable public addresses, web uploads keep
+  EXIF); keeping and deleting (item delete leaves files until account delete; Stripe record kept;
+  Apple revocation token kept only until Apple confirms; logs/backups/provider copies); choices.
+  Date stamp "october 12, 2026" — Will sets the final date.
+- **/support (new):** help, report content or a user, delete your account, your data, billing,
+  iPhone — each a prefilled email. Added to the site footer and to `SitePage` / `App.tsx` routes.
+- **/contact:** gains "report content or a user" and a pointer to /support.
+- **Not changed:** Terms (proposed additions live in the moderation design, §5); no retention
+  periods invented; no claims about providers' training.
+
+---
+
 ## 2026-10-12 · Account deletion keeps its Apple revocation material; Ask stops offering actions it cannot take
 
 Two App Store review follow-ups (`docs/agent-coordination.md`, AS-APPLE-REVOCATION and AS-ASK).

@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Privacy · Stash</title>
-<meta name="description" content="What Stash collects, what it does with it, and what it never does: no selling your data, no ads, no training AI models on your content.">
+<meta name="description" content="What Stash collects, where it goes, which services process it, what is public, how long it is kept and how to delete it — in plain language, matching what the software actually does.">
 <link rel="icon" href="/favicon.ico?v=a4" sizes="48x48">
 <link rel="icon" href="/favicon.svg?v=a4" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png?v=a4" type="image/png" sizes="32x32">
@@ -15,7 +15,7 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.gostash.it/privacy">
 <meta property="og:title" content="Privacy · Stash">
-<meta property="og:description" content="What Stash collects, what it does with it, and what it never does: no selling your data, no ads, no training AI models on your content.">
+<meta property="og:description" content="What Stash collects, where it goes, which services process it, what is public, how long it is kept and how to delete it — in plain language, matching what the software actually does.">
 <meta property="og:image" content="https://www.gostash.it/og-v2.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -33,8 +33,8 @@
     <div class="wrap">
       <p class="kicker"><span class="tag">privacy policy</span></p>
       <h1 class="t-page">Privacy.</h1>
-      <p class="lead">Stash exists to hold things you want to remember — which means we take holding them seriously. This page explains what we collect, what we do with it, and what we will never do with it, in plain language.</p>
-      <p class="legal-stamp"><span class="tag">last updated</span><span class="px">september 7, 2026</span></p>
+      <p class="lead">Stash exists to hold things you want to remember — which means we take holding them seriously. This page says what we collect, where it goes, which services touch it, what other people can see, how long we keep it and how you delete it, in plain language that matches what the software actually does.</p>
+      <p class="legal-stamp"><span class="tag">last updated</span><span class="px">october 12, 2026</span></p>
     </div>
   </header>
 
@@ -44,44 +44,85 @@
         <div class="win-bar"><span>contents</span><i></i></div>
         <div class="win-body">
           <a href="#collect">What we collect</a>
-          <a href="#use">How your content is used</a>
+          <a href="#use">How it is used</a>
           <a href="#services">Services we rely on</a>
+          <a href="#public">What other people can see</a>
           <a href="#never">What we never do</a>
-          <a href="#delete">Deleting your data</a>
+          <a href="#keep">Keeping and deleting</a>
+          <a href="#choices">Your choices</a>
+          <a href="#contact">Questions</a>
         </div>
       </nav>
       <div class="legal">
         <section id="collect">
           <h2>What we collect</h2>
-          <p>Your account information: the email address you sign up with, and a phone number if you choose to connect WhatsApp or SMS capture.</p>
-          <p>The content you save: links, notes, images, documents, and voice recordings, along with titles, descriptions, and searchable text that Stash generates from them.</p>
-          <p>Basic usage information needed to run the service, such as subscription status and error logs.</p>
+          <p><b>Your account.</b> The email address you sign up with, your username and display name. If you sign in with Google or Apple, the name and profile picture the provider shares with us (Apple may give us a private relay address instead of your email), and a Sign in with Apple token we keep only so we can revoke Apple's sign-in grant when you delete your account. A phone number is held only for accounts that connected WhatsApp or SMS capture before October 2026, when we stopped offering it.</p>
+          <p><b>What you save.</b> Links, notes, images, documents, audio and video — and what Stash derives from them so they can be found again: titles, descriptions, summaries, the text of pages, transcripts, text read from images, tags, search indexes, and for some links and photos a place (name, address, map). Also your own notes on items, sticky notes, reminders, pins, comments you post, and the people you follow.</p>
+          <p><b>Location, only when you turn it on.</b> The location pin on the web and in the iPhone app attaches where you were to a save, stored as coordinates and a place label. Separately, Stash works out a place automatically from map links, listing pages and photos that contain a street address; that is part of understanding the save and has no switch.</p>
+          <p><b>What you ask.</b> Your Ask Stash conversations, the searches you run and the feedback you give on answers are stored with your account so you can come back to them.</p>
+          <p><b>Service data.</b> Subscription status, sign-in records, which AI apps you have connected, and server logs. Logs can contain the addresses you save and the text our processors return about them.</p>
+          <p><b>On your device.</b> The web app keeps your session, your recent searches and unsaved edit drafts in your browser's storage. It sets no tracking cookies and includes no analytics or advertising trackers.</p>
         </section>
         <section id="use">
-          <h2>How your content is used</h2>
-          <p>Your content is used for one purpose: making your own stash useful to you. That includes generating titles and descriptions, transcribing audio, extracting text from pages and documents, and answering questions you ask about what you’ve saved.</p>
-          <p>Everything you save is private by default. Content appears publicly only if you explicitly mark an item as public.</p>
+          <h2>How it is used</h2>
+          <p><b>Making your own stash useful.</b> Everything you save is processed automatically, right after you save it: Stash fetches a page's text, transcribes audio and video, reads documents, describes images and reads the text in them, writes titles and summaries, suggests tags, looks up places and builds the search index that Ask Stash answers from. Some of that work is retried or re-checked later by scheduled jobs when a first pass fails.</p>
+          <p><b>Keeping capture working.</b> To check that saves are captured correctly, Stash may run automated quality checks on saved links — the page's title, description, summary, a portion of its text and its preview image are reviewed by a program on our own worker and by the AI services below. These checks exist to fix capture, not to profile you.</p>
+          <p><b>Running the service.</b> The people who run Stash can see account details (email, sign-in counts) and, when needed to run the service or to answer you, the contents of a library. That access is logged.</p>
         </section>
         <section id="services">
           <h2>Services we rely on</h2>
-          <p>Stash runs on a small set of infrastructure providers that process data on our behalf:</p>
+          <p>Stash runs on providers that process data on our behalf. They receive what is needed for the job and nothing more:</p>
           <ul class="ticks">
-            <li>Supabase — database, authentication, and file storage</li>
-            <li>OpenAI — generating descriptions, transcriptions, and answers from your content</li>
-            <li>Stripe — payments and subscription management (we never see your card number)</li>
-            <li>Twilio — WhatsApp and SMS capture, if you connect a phone number</li>
-            <li>Firecrawl — fetching the text of web pages you save</li>
+            <li>Supabase — database, sign-in, file storage and background jobs</li>
+            <li>Vercel — hosts the website and the app; serves share-link previews and document previews</li>
+            <li>OpenAI — understanding what you save: descriptions, summaries, transcripts of audio and video, reading PDFs and documents, describing images and reading their text, extracting facts, the search index, and Ask Stash answers. Sent through OpenAI's API under its business terms</li>
+            <li>Firecrawl, Jina Reader and the Internet Archive — fetching the text of pages you save; the Archive may also keep a copy of a page Stash asked it to capture. As a last resort for a page that will not load, a public fetch proxy (allorigins.win)</li>
+            <li>SearchApi and TranscriptFetch — transcripts of TikTok and Instagram links</li>
+            <li>Mapbox and BigDataCloud — turning addresses into places and coordinates into place names; Mapbox also draws the map pictures. BigDataCloud is called from your browser when the location pin is on</li>
+            <li>Google — Sign in with Google on the web and Google's sign-in kit in the iPhone app; Google Fonts on our pages</li>
+            <li>Apple — Sign in with Apple; the iPhone app uses Apple's own location and place-lookup services</li>
+            <li>Stripe — payments and subscriptions (we never see your card number)</li>
+            <li>Resend — the emails Stash sends you, such as reminders</li>
+            <li>Twilio — WhatsApp and SMS, for the accounts that connected a phone number</li>
+            <li>Microsoft's Office viewer — shows Word, PowerPoint and Excel files you open, by fetching the file</li>
+            <li>Media players — YouTube, Vimeo, TikTok, Instagram, Loom, Figma and Google Slides load their own players, with their own cookies, when you open a saved item from those sites</li>
+            <li>AI apps you connect — Claude, ChatGPT, Cursor and others can search and read your stash only after you authorize each one; every access is logged and listed under Settings → Connected agents, and you can disconnect an app at any time</li>
           </ul>
+        </section>
+        <section id="public">
+          <h2>What other people can see</h2>
+          <p>What you save is private to your account unless you share it. There are two ways to share, and you control both per item:</p>
+          <ul class="ticks">
+            <li>Public feed — mark an item public and it appears on your page at gostash.it/feed/&lt;your username&gt; and in Discover, with its title, picture, your note, sticky note, description and the captured text. Anyone can read it, comment on it and follow you. Un-mark it to take it down</li>
+            <li>Share link — an unlisted link to one item, for anyone who has the link; it shows the item in full. Stop sharing at any time</li>
+          </ul>
+          <p>Your profile — username, display name, bio and picture — can be seen by anyone, as can who follows whom. If a location pin was on when you saved an item, the place and coordinates are part of the item and travel with it when you make it public or share it.</p>
+          <p>Pictures and files you upload are stored at long, unguessable addresses that work for anyone who has the exact link, even on private items; those addresses are shown only to you unless you share the item. A photo uploaded from the web keeps the information embedded by your camera, including a location if your camera recorded one; the iPhone app removes that before uploading.</p>
         </section>
         <section id="never">
           <h2>What we never do</h2>
-          <p>We do not sell your data. We do not show you ads. We do not train AI models on your content.</p>
+          <p>We do not sell your data. We do not show you ads. We do not use trackers. We do not train AI models on your content.</p>
         </section>
-        <section id="delete">
-          <h2>Deleting your data</h2>
-          <p>Deleting an item removes it and its derived data (descriptions, search indexes) from your stash. To delete your entire account and everything in it, open Settings → Your Information → Delete account. Deletion is immediate and permanent: every item, file, transcript, note, and conversation is removed, your phone number is unlinked, and any subscription is canceled.</p>
+        <section id="keep">
+          <h2>Keeping and deleting</h2>
+          <p><b>Items.</b> What you save stays until you delete it. Deleting an item removes it, its derived text and its search index right away. Files attached to it are removed when you delete your account.</p>
+          <p><b>Your account.</b> Open Settings → Your information → Delete account on the web, or Settings in the iPhone app. Deletion is immediate and permanent: every item, file, transcript, note, conversation, comment and follow, your profile, your phone number and your stored sign-in tokens are removed, and any subscription is canceled. We keep the billing record Stripe holds, as accounting requires. If you signed in with Apple we ask Apple to revoke its sign-in grant; if Apple cannot be reached at that moment we keep only the revocation token until Apple confirms, then delete it.</p>
+          <p><b>Copies elsewhere.</b> Our hosting providers keep server logs and database backups for a limited time on their own schedules, and deleted data leaves them as they roll over. Content we sent to a provider to process — a page's text to OpenAI, for example — is held under that provider's terms; we do not retrieve it or send it again after you delete.</p>
         </section>
-        <p class="legal-foot">Questions about this policy? Email <a href="mailto:hello@gostash.it">hello@gostash.it</a>.</p>
+        <section id="choices">
+          <h2>Your choices</h2>
+          <ul class="ticks">
+            <li>Location is off until you turn the pin on — per save on the web, per account in the iPhone app</li>
+            <li>Public feed and share links are per item; un-share at any time</li>
+            <li>Reminder emails can be switched off under Settings → Your information</li>
+            <li>Connected AI apps can be disconnected under Settings → Connected agents</li>
+            <li>AI processing is how Stash understands what you save. The iPhone app asks for your permission before it sends anything to an AI service and lets you withdraw that permission on that device; on the web, processing is part of saving — if you would rather something were not processed, do not save it to Stash</li>
+          </ul>
+        </section>
+        <section id="contact">
+          <h2>Questions</h2>
+          <p>Write to <a href="mailto:hello@gostash.it">hello@gostash.it</a> with any question about your data. When this policy changes, the date at the top changes with it.</p>
+        </section>
       </div>
     </div>
   </section>

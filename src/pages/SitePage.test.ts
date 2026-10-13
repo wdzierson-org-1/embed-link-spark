@@ -5,6 +5,7 @@ describe('sitePageTarget', () => {
     expect(sitePageTarget({ dev: false, bootPath: '/auth', page: 'privacy' })).toBe('/privacy');
     expect(sitePageTarget({ dev: false, bootPath: '/home', page: 'terms' })).toBe('/terms');
     expect(sitePageTarget({ dev: false, bootPath: '/', page: 'contact' })).toBe('/contact');
+    expect(sitePageTarget({ dev: false, bootPath: '/home', page: 'support' })).toBe('/support');
   });
 
   it('never loops: booted at the page in production means the static file is missing, so it stays', () => {

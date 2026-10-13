@@ -52,6 +52,7 @@
   <nav class="foot-col" aria-labelledby="foot-co">
     <h2 class="px" id="foot-co">company</h2>
     <a href="${pageUrl('contact.html')}"${current('contact')}>Contact</a>
+    <a href="${pageUrl('support.html')}"${current('support')}>Support</a>
     <a href="${pageUrl('terms.html')}"${current('terms')}>Terms</a>
     <a href="${pageUrl('privacy.html')}"${current('privacy')}>Privacy</a>
   </nav>
