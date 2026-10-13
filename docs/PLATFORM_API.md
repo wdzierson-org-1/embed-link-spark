@@ -742,9 +742,9 @@ when Apple refuses (expired or reused code: `invalid_grant`); `500 { stored: fal
 server-side failure (missing secrets, unreachable Apple, failing to store the token row). Call it
 immediately after `signInWithIdToken` — Apple's code lives five minutes and works once — and never
 block the sign-in on it. One token is kept per person per audience (a later call replaces it).
-`delete-account` queues and revokes every stored token before it deletes the account and reports
-`apple: { revoked, failed, pending, invalid }` (pending tokens are retried by a cron after the
-account is gone). The function never logs Apple's response body (on a 2xx it can carry
+`delete-account` queues every stored token before it deletes the account, revokes them once the
+account is gone, and reports `apple: { revoked, failed, pending, invalid }` (pending tokens are
+retried by a cron, only for owners confirmed absent). The function never logs Apple's response body (on a 2xx it can carry
 live tokens); only Apple's status and error code reach its log.
 
 ### `GET /apple-token-exchange` — revocation readiness (2026-10-12)
