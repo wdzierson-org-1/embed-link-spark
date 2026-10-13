@@ -70,7 +70,7 @@
             <li>Firecrawl, Jina Reader and the Internet Archive — fetching the text of pages you save; the Archive may also keep a copy of a page Stash asked it to capture. As a last resort for a page that will not load, a public fetch proxy (allorigins.win)</li>
             <li>SearchApi and TranscriptFetch — transcripts of TikTok and Instagram links</li>
             <li>Mapbox and BigDataCloud — turning addresses into places and coordinates into place names; Mapbox also draws the map pictures. BigDataCloud is called from your browser when the location pin is on</li>
-            <li>Google — Sign in with Google on the web and Google's sign-in kit in the iPhone app; Google Fonts on our pages</li>
+            <li>Google — Sign in with Google on the web and Google's sign-in kit in the iPhone app. Google's kit declares in its privacy manifest that it may collect a device identifier, a user identifier and usage data for its own functionality and analytics; that is Google's declaration about its software, not something Stash observes or uses, and it is not tracking across other companies' apps. Google Fonts on our pages</li>
             <li>Apple — Sign in with Apple; the iPhone app uses Apple's own location and place-lookup services</li>
             <li>Stripe — payments and subscriptions (we never see your card number)</li>
             <li>Resend — the emails Stash sends you, such as reminders</li>
@@ -82,13 +82,14 @@
         </section>
         <section id="public">
           <h2>What other people can see</h2>
-          <p>What you save is private to your account unless you share it. There are two ways to share, and you control both per item:</p>
+          <p>Your library — the items, your notes and the text Stash derives from them — is private to your account unless you share it. Uploaded files work differently and are described below. There are two ways to share, and you control both per item:</p>
           <ul class="ticks">
             <li>Public feed — mark an item public and it appears on your page at gostash.it/feed/&lt;your username&gt; and in Discover, with its title, picture, your note, sticky note, description and the captured text. Anyone can read it, comment on it and follow you. Un-mark it to take it down</li>
             <li>Share link — an unlisted link to one item, for anyone who has the link; it shows the item in full. Stop sharing at any time</li>
           </ul>
           <p>Your profile — username, display name, bio and picture — can be seen by anyone, as can who follows whom. If a location pin was on when you saved an item, the place and coordinates are part of the item and travel with it when you make it public or share it.</p>
-          <p>Pictures and files you upload are stored at long, unguessable addresses that work for anyone who has the exact link, even on private items; those addresses are shown only to you unless you share the item. A photo uploaded from the web keeps the information embedded by your camera, including a location if your camera recorded one; the iPhone app removes that before uploading.</p>
+          <p>Pictures, documents and recordings you upload are kept in a file store whose addresses are public: anyone holding the exact address can open the file, even when the item it belongs to is private. The addresses are long and unguessable, and Stash shows them only to you — and to others only through the previews and share links you choose to publish. We are reviewing whether private items' files should require a signed link instead.</p>
+          <p>Photos keep the information your camera embedded in them unless you remove it first. The web app uploads them as they are, including a location if your camera recorded one. The iPhone app removes location data from the photos it prepares before upload, but other camera details can remain, and a photo it cannot prepare is uploaded as it is.</p>
         </section>
         <section id="never">
           <h2>What we never do</h2>
@@ -96,9 +97,9 @@
         </section>
         <section id="keep">
           <h2>Keeping and deleting</h2>
-          <p><b>Items.</b> What you save stays until you delete it. Deleting an item removes it, its derived text and its search index right away. Files attached to it are removed when you delete your account.</p>
-          <p><b>Your account.</b> Open Settings → Your information → Delete account on the web, or Settings in the iPhone app. Deletion is immediate and permanent: every item, file, transcript, note, conversation, comment and follow, your profile, your phone number and your stored sign-in tokens are removed, and any subscription is canceled. We keep the billing record Stripe holds, as accounting requires. If you signed in with Apple we ask Apple to revoke its sign-in grant; if Apple cannot be reached at that moment we keep only the revocation token until Apple confirms, then delete it.</p>
-          <p><b>Copies elsewhere.</b> Our hosting providers keep server logs and database backups for a limited time on their own schedules, and deleted data leaves them as they roll over. Content we sent to a provider to process — a page's text to OpenAI, for example — is held under that provider's terms; we do not retrieve it or send it again after you delete.</p>
+          <p><b>Items.</b> What you save stays until you delete it. Deleting an item removes it, its derived text and its search index right away, on the web and in the iPhone app alike; the files attached to it stay in the file store until you delete your account.</p>
+          <p><b>Your account.</b> Open Settings → Your information → Delete account on the web, or Settings in the iPhone app. Deletion is immediate and permanent: every item, file, transcript, note, conversation, comment and follow, your profile, your phone number and your stored sign-in tokens are removed, and any subscription is canceled. We keep the billing record Stripe holds, as accounting requires. If you signed in with Apple we ask Apple to revoke its sign-in grant; if Apple does not confirm straight away we keep only the revocation token — nothing else about you — while we retry, for at most ninety days, and then delete it.</p>
+          <p><b>Copies elsewhere.</b> Our hosting providers keep server logs and database backups on their own schedules, which we do not control. Content we sent to a provider to process — a page's text to OpenAI, for example, or a PDF uploaded to OpenAI so it can be read — is held under that provider's terms; Stash asks OpenAI to delete an uploaded PDF once it has been read, but does not check that the deletion succeeded.</p>
         </section>
         <section id="choices">
           <h2>Your choices</h2>
