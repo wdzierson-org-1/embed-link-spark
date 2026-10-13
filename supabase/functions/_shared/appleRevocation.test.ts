@@ -1,17 +1,20 @@
 // supabase/functions/_shared/appleRevocation.test.ts
 // @vitest-environment node
 //
-// AS-APPLE-REVOCATION acceptance (docs/agent-coordination.md, 2026-10-12): unreadable tokens stop
-// the deletion; tokens are staged before the auth user goes and Apple is asked only afterwards; a
-// transient Apple failure queues the token; the sweep retries with backoff — only for accounts
-// confirmed gone — and settles to revoked / invalid / exhausted with the token nulled; a row whose
-// owner still exists is deferred, never revoked, and dropped after 30 days; exhausted rows are
-// retained and counted for an operator; one owner's deletion never touches another owner's rows.
+// AS-APPLE-REVOCATION acceptance (docs/agent-coordination.md, 2026-10-12, incl. Codex's review
+// follow-up): unreadable tokens stop the deletion before anything destructive; tokens are staged
+// before the auth user goes and Apple is asked only afterwards; a transient Apple failure queues the
+// token; the sweep retries with backoff — only for owners confirmed absent — and settles to revoked /
+// invalid (token nulled) or exhausted (token KEPT for 90 days, then purged as irrevocable); a row
+// whose owner is confirmed alive is deferred, never revoked, and dropped after 30 days; a row whose
+// owner is unknown is deferred and never dropped; one owner's deletion never touches another's rows.
 import { describe, expect, it } from 'vitest';
 import {
   DEFER_MS,
+  EXHAUSTED_RETENTION_DAYS,
   MAX_ATTEMPTS,
   PURGE_AFTER_DAYS,
+  allPending,
   appleReadiness,
   backoffMs,
   classifyRevokeResponse,
@@ -20,6 +23,7 @@ import {
   revokeStaged,
   stageForDeletion,
   sweepRevocations,
+  type OwnerState,
   type RevocationRow,
   type RevocationStore,
   type RevokeOutcome,
@@ -75,15 +79,19 @@ class FakeStore implements RevocationStore {
       .sort((a, b) => a.next_attempt_at.localeCompare(b.next_attempt_at))
       .slice(0, limit);
   }
-  async purge(before: Date) {
-    let n = 0;
+  async purge(settledBefore: Date, exhaustedBefore: Date) {
+    let settled = 0;
+    let exhausted = 0;
     for (const [key, r] of this.rows) {
-      if ((r.status === 'revoked' || r.status === 'invalid') && r.updated_at < iso(before)) {
+      if ((r.status === 'revoked' || r.status === 'invalid') && r.updated_at < iso(settledBefore)) {
         this.rows.delete(key);
-        n += 1;
+        settled += 1;
+      } else if (r.status === 'exhausted' && r.updated_at < iso(exhaustedBefore)) {
+        this.rows.delete(key);
+        exhausted += 1;
       }
     }
-    return n;
+    return { settled, exhausted };
   }
   async exhaustedCount() {
     return [...this.rows.values()].filter((r) => r.status === 'exhausted').length;
@@ -98,8 +106,10 @@ function scriptedRevoke(store: FakeStore, outcomes: Record<string, RevokeOutcome
   };
 }
 
-const ALL_GONE = { userExists: async () => false };
-const existing = (ids: string[]) => ({ userExists: async (id: string) => ids.includes(id) });
+const ALL_GONE = { ownerState: async (): Promise<OwnerState> => 'absent' };
+const alive = (ids: string[]) => ({ ownerState: async (id: string): Promise<OwnerState> => (ids.includes(id) ? 'alive' : 'absent') });
+const UNKNOWN = { ownerState: async (): Promise<OwnerState> => 'unknown' };
+const PROBE_THROWS = { ownerState: async (): Promise<OwnerState> => { throw new Error('auth admin unreachable'); } };
 
 const userA = '11111111-1111-4111-8111-111111111111';
 const userB = '22222222-2222-4222-8222-222222222222';
@@ -109,6 +119,8 @@ const other = '44444444-4444-4444-8444-444444444444';
 const pendingRow = (userId: string, clientId: string, token: string, attempts: number, nextAt: Date, updatedAt = nextAt): RevocationRow => ({
   user_id: userId, client_id: clientId, refresh_token: token, status: 'pending', attempts, last_error: 'apple 503', next_attempt_at: iso(nextAt), updated_at: iso(updatedAt), revoked_at: null,
 });
+
+const EMPTY_SWEEP = { processed: 0, revoked: 0, invalid: 0, retried: 0, exhausted: 0, deferred: 0, unknown: 0, dropped: 0, purged: 0, purgedExhausted: 0, exhaustedTotal: 0 };
 
 describe('classifyRevokeResponse — only invalid_grant is terminal', () => {
   it.each([
@@ -139,14 +151,15 @@ describe('backoff — bounded, doubling from 15 minutes, capped at 24 hours', ()
     expect(nextAttemptAt(1, NOW)).toBe('2026-10-12T20:15:00.000Z');
     expect(nextAttemptAt(4, NOW)).toBe('2026-10-12T22:00:00.000Z');
   });
-  it('gives up after a bounded number of tries and keeps terminal rows a bounded time', () => {
+  it('bounds tries, retention of settled rows, and retention of recoverable exhausted rows', () => {
     expect(MAX_ATTEMPTS).toBe(20);
     expect(PURGE_AFTER_DAYS).toBe(30);
+    expect(EXHAUSTED_RETENTION_DAYS).toBe(90);
     expect(DEFER_MS).toBe(60 * MIN);
   });
 });
 
-describe('stageForDeletion — before the auth user goes', () => {
+describe('stageForDeletion — before anything destructive', () => {
   it('refuses when the tokens cannot be read: throws, nothing queued', async () => {
     const store = new FakeStore();
     store.failListTokens = true;
@@ -181,6 +194,11 @@ describe('stageForDeletion — before the auth user goes', () => {
     expect(store.row(userA, 'it.gostash.stash')).toMatchObject({ status: 'pending', refresh_token: 'tok-ios', attempts: 0, next_attempt_at: iso(NOW) });
     expect(store.row(userA, 'it.gostash.web')).toMatchObject({ status: 'pending', refresh_token: 'tok-web' });
     expect(store.log.some((l) => l.startsWith('apple:'))).toBe(false); // staging never talks to Apple
+  });
+
+  it('allPending is what the handler reports when it could not ask Apple after the deletion', () => {
+    expect(allPending([{ client_id: 'a', refresh_token: 't1' }, { client_id: 'b', refresh_token: 't2' }])).toEqual({ revoked: 0, failed: 2, pending: 2, invalid: 0 });
+    expect(allPending([])).toEqual({ revoked: 0, failed: 0, pending: 0, invalid: 0 });
   });
 });
 
@@ -233,7 +251,7 @@ describe('revokeStaged — after the auth user is gone', () => {
 });
 
 describe('sweepRevocations — the cron pass', () => {
-  it('retries due rows of absent accounts and settles them: revoked, invalid, backoff, exhausted; leaves the rest alone', async () => {
+  it('retries due rows of absent owners and settles them: revoked, invalid, backoff, exhausted (token kept); leaves the rest alone', async () => {
     const store = new FakeStore();
     const due = new Date(NOW.getTime() - MIN);
     const later = new Date(NOW.getTime() + 60 * MIN);
@@ -250,24 +268,33 @@ describe('sweepRevocations — the cron pass', () => {
     });
 
     const result = await sweepRevocations(store, revoke, ALL_GONE, NOW);
-    expect(result).toEqual({ processed: 4, revoked: 1, invalid: 1, retried: 1, exhausted: 1, deferred: 0, dropped: 0, purged: 0, exhaustedTotal: 1 });
+    expect(result).toEqual({ ...EMPTY_SWEEP, processed: 4, revoked: 1, invalid: 1, retried: 1, exhausted: 1, exhaustedTotal: 1 });
 
     expect(store.row(gone, 'c-revoked')).toMatchObject({ status: 'revoked', refresh_token: null, revoked_at: iso(NOW) });
     expect(store.row(gone, 'c-invalid')).toMatchObject({ status: 'invalid', refresh_token: null, last_error: 'invalid_grant' });
     expect(store.row(gone, 'c-retry')).toMatchObject({ status: 'pending', refresh_token: 'tok-3', attempts: 4, last_error: 'apple 502', next_attempt_at: '2026-10-12T22:00:00.000Z' });
-    expect(store.row(gone, 'c-last')).toMatchObject({ status: 'exhausted', refresh_token: null, attempts: MAX_ATTEMPTS, last_error: 'timeout' });
+    // Exhausted keeps its token: that is what an operator re-queues after fixing the cause.
+    expect(store.row(gone, 'c-last')).toMatchObject({ status: 'exhausted', refresh_token: 'tok-4', attempts: MAX_ATTEMPTS, last_error: 'timeout' });
     expect(store.row(other, 'c-not-yet')).toMatchObject({ status: 'pending', refresh_token: 'tok-5', attempts: 0 });
     expect(store.log.filter((l) => l.startsWith('apple:'))).toEqual(['apple:tok-1', 'apple:tok-2', 'apple:tok-3', 'apple:tok-4']);
   });
 
-  it('never revokes for an account that still exists: the row is deferred an hour, token kept, Apple not asked', async () => {
+  it('a re-queued exhausted row (pending, attempts 0) is simply retried like any other', async () => {
+    const store = new FakeStore();
+    store.seedRow(pendingRow(gone, 'c-requeued', 'tok-again', 0, new Date(NOW.getTime() - MIN)));
+    const result = await sweepRevocations(store, scriptedRevoke(store, { 'tok-again': { kind: 'revoked' } }), ALL_GONE, NOW);
+    expect(result).toMatchObject({ processed: 1, revoked: 1 });
+    expect(store.row(gone, 'c-requeued')).toMatchObject({ status: 'revoked', refresh_token: null });
+  });
+
+  it('never revokes for an owner that is confirmed alive: deferred an hour, token kept, Apple not asked', async () => {
     const store = new FakeStore();
     const due = new Date(NOW.getTime() - MIN);
     store.seedRow(pendingRow(userA, 'c-live', 'tok-live', 1, due, new Date(NOW.getTime() - 2 * DAY)));
     store.seedRow(pendingRow(gone, 'c-gone', 'tok-gone', 1, due));
     const revoke = scriptedRevoke(store, { 'tok-gone': { kind: 'revoked' } });
-    const result = await sweepRevocations(store, revoke, existing([userA]), NOW);
-    expect(result).toMatchObject({ processed: 1, revoked: 1, deferred: 1, dropped: 0 });
+    const result = await sweepRevocations(store, revoke, alive([userA]), NOW);
+    expect(result).toMatchObject({ processed: 1, revoked: 1, deferred: 1, unknown: 0, dropped: 0 });
     expect(store.log.filter((l) => l.startsWith('apple:'))).toEqual(['apple:tok-gone']);
     expect(store.row(userA, 'c-live')).toMatchObject({
       status: 'pending',
@@ -279,24 +306,33 @@ describe('sweepRevocations — the cron pass', () => {
     });
   });
 
-  it('drops a deferred row once it is older than the retention window (its token still lives in apple_sign_in_tokens)', async () => {
+  it('drops a confirmed-alive row once it is older than the retention window (its token still lives in apple_sign_in_tokens)', async () => {
     const store = new FakeStore();
     const due = new Date(NOW.getTime() - MIN);
     store.seedRow(pendingRow(userA, 'c-stale', 'tok-stale', 1, due, new Date(NOW.getTime() - (PURGE_AFTER_DAYS + 1) * DAY)));
-    const result = await sweepRevocations(store, scriptedRevoke(store, {}), existing([userA]), NOW);
+    const result = await sweepRevocations(store, scriptedRevoke(store, {}), alive([userA]), NOW);
     expect(result).toMatchObject({ processed: 0, deferred: 0, dropped: 1 });
     expect(store.row(userA, 'c-stale')).toBeUndefined();
     expect(store.log.some((l) => l.startsWith('apple:'))).toBe(false);
   });
 
-  it('treats an unanswerable existence check as alive (defers, never revokes on a guess)', async () => {
-    const store = new FakeStore();
-    store.seedRow(pendingRow(userA, 'c-unknown', 'tok-unknown', 1, new Date(NOW.getTime() - MIN)));
-    const flaky = { userExists: async () => { throw new Error('auth admin unreachable'); } };
-    const result = await sweepRevocations(store, scriptedRevoke(store, {}), flaky, NOW);
-    expect(result).toMatchObject({ processed: 0, deferred: 1 });
-    expect(store.row(userA, 'c-unknown')).toMatchObject({ status: 'pending', refresh_token: 'tok-unknown' });
-    expect(store.log.some((l) => l.startsWith('apple:'))).toBe(false);
+  it('an unknown owner is deferred and NEVER dropped, however old the row: no revoke, no remove, token and row preserved', async () => {
+    for (const deps of [UNKNOWN, PROBE_THROWS]) {
+      const store = new FakeStore();
+      const due = new Date(NOW.getTime() - MIN);
+      store.seedRow(pendingRow(gone, 'c-old-unknown', 'tok-only-copy', 5, due, new Date(NOW.getTime() - (PURGE_AFTER_DAYS + 40) * DAY)));
+      const result = await sweepRevocations(store, scriptedRevoke(store, { 'tok-only-copy': { kind: 'revoked' } }), deps, NOW);
+      expect(result).toMatchObject({ processed: 0, deferred: 0, unknown: 1, dropped: 0, revoked: 0 });
+      expect(store.row(gone, 'c-old-unknown')).toMatchObject({
+        status: 'pending',
+        refresh_token: 'tok-only-copy',
+        attempts: 5,
+        last_error: 'owner state unknown',
+        next_attempt_at: iso(new Date(NOW.getTime() + DEFER_MS)),
+        updated_at: iso(new Date(NOW.getTime() - (PURGE_AFTER_DAYS + 40) * DAY)),
+      });
+      expect(store.log.some((l) => l.startsWith('apple:') || l.startsWith('remove:'))).toBe(false);
+    }
   });
 
   it('respects the batch limit, oldest first', async () => {
@@ -310,20 +346,23 @@ describe('sweepRevocations — the cron pass', () => {
     expect(store.row(gone, 'c-newer')).toMatchObject({ status: 'pending' });
   });
 
-  it('purges old revoked/invalid rows, keeps recent ones, and RETAINS exhausted rows for an operator', async () => {
+  it('purges old revoked/invalid rows after 30 days, keeps exhausted rows with their token until 90 days, then purges them as irrevocable', async () => {
     const store = new FakeStore();
     const old = new Date(NOW.getTime() - (PURGE_AFTER_DAYS + 1) * DAY);
     const recent = new Date(NOW.getTime() - 2 * DAY);
+    const veryOld = new Date(NOW.getTime() - (EXHAUSTED_RETENTION_DAYS + 1) * DAY);
     store.seedRow({ user_id: gone, client_id: 'c-old-revoked', refresh_token: null, status: 'revoked', attempts: 0, last_error: null, next_attempt_at: iso(old), updated_at: iso(old), revoked_at: iso(old) });
     store.seedRow({ user_id: gone, client_id: 'c-old-invalid', refresh_token: null, status: 'invalid', attempts: 0, last_error: 'invalid_grant', next_attempt_at: iso(old), updated_at: iso(old), revoked_at: null });
-    store.seedRow({ user_id: gone, client_id: 'c-old-exhausted', refresh_token: null, status: 'exhausted', attempts: MAX_ATTEMPTS, last_error: 'timeout', next_attempt_at: iso(old), updated_at: iso(old), revoked_at: null });
+    store.seedRow({ user_id: gone, client_id: 'c-exhausted-31d', refresh_token: 'tok-keep', status: 'exhausted', attempts: MAX_ATTEMPTS, last_error: 'timeout', next_attempt_at: iso(old), updated_at: iso(old), revoked_at: null });
+    store.seedRow({ user_id: gone, client_id: 'c-exhausted-91d', refresh_token: 'tok-lost', status: 'exhausted', attempts: MAX_ATTEMPTS, last_error: 'timeout', next_attempt_at: iso(veryOld), updated_at: iso(veryOld), revoked_at: null });
     store.seedRow({ user_id: gone, client_id: 'c-recent', refresh_token: null, status: 'revoked', attempts: 0, last_error: null, next_attempt_at: iso(recent), updated_at: iso(recent), revoked_at: iso(recent) });
     store.seedRow(pendingRow(other, 'c-pending-later', 'tok-p', 2, new Date(NOW.getTime() + 60 * MIN)));
     const result = await sweepRevocations(store, scriptedRevoke(store, {}), ALL_GONE, NOW);
-    expect(result).toEqual({ processed: 0, revoked: 0, invalid: 0, retried: 0, exhausted: 0, deferred: 0, dropped: 0, purged: 2, exhaustedTotal: 1 });
+    expect(result).toEqual({ ...EMPTY_SWEEP, purged: 2, purgedExhausted: 1, exhaustedTotal: 1 });
     expect(store.row(gone, 'c-old-revoked')).toBeUndefined();
     expect(store.row(gone, 'c-old-invalid')).toBeUndefined();
-    expect(store.row(gone, 'c-old-exhausted')).toMatchObject({ status: 'exhausted', refresh_token: null });
+    expect(store.row(gone, 'c-exhausted-31d')).toMatchObject({ status: 'exhausted', refresh_token: 'tok-keep' });
+    expect(store.row(gone, 'c-exhausted-91d')).toBeUndefined();
     expect(store.row(gone, 'c-recent')).toBeDefined();
     expect(store.row(other, 'c-pending-later')).toBeDefined();
   });

@@ -7,26 +7,30 @@
 // (or a stalled read) lost the only material that could ever revoke the grant.
 //
 // Now, in delete-account's order:
-//   1. stageForDeletion  — copy every stored token into apple_revocations (a service-role-only
-//                          table with NO foreign key to auth.users) as `pending`. Unreadable or
-//                          uncopyable tokens throw: the caller refuses the deletion (503).
-//   2. (the auth user is deleted by the caller)
+//   1. stageForDeletion  — FIRST, before anything destructive: copy every stored token into
+//                          apple_revocations (a service-role-only table with NO foreign key to
+//                          auth.users) as `pending`. Unreadable or uncopyable tokens throw and the
+//                          caller refuses the deletion (503) with nothing touched.
+//   2. (the caller cancels Stripe, wipes storage and deletes the auth user)
 //   3. revokeStaged      — only now ask Apple, so a deletion that failed never costs a live
 //                          account its grant. Each row settles:
 //        revoked    Apple answered 2xx (it also answers 200 for a token it no longer knows)
 //        invalid    Apple answered 400 invalid_grant — "the token is invalid or expired": terminal
 //        pending    anything else (invalid_client, 5xx, timeout, network, missing secrets)
-// The sweep (sweepRevocations, cron every 15 min) retries `pending` rows ONLY for accounts that are
-// confirmed gone: a row whose owner still exists means delete-account staged it and then failed
-// before the auth deletion, so the row is deferred (never revoked) and dropped after
-// PURGE_AFTER_DAYS — its token is still in apple_sign_in_tokens, nothing is lost. Retries back off
-// from 15 minutes to 24 hours; after MAX_ATTEMPTS a row becomes `exhausted`: an operational failure
-// that is RETAINED (not purged) and logged at error level every run until an operator resolves it.
-// The refresh token is nulled the moment a row leaves `pending` (a DB check enforces it); revoked
-// and invalid rows are purged after PURGE_AFTER_DAYS. Nothing in this module logs a token.
+// The sweep (sweepRevocations, cron every 15 min) retries `pending` rows ONLY for owners that are
+// confirmed ABSENT. An owner that is confirmed ALIVE (delete-account staged the row and then failed
+// before the auth deletion) is deferred — never revoked — and its row dropped after
+// PURGE_AFTER_DAYS because the token still sits in apple_sign_in_tokens. An owner whose state is
+// UNKNOWN (the probe failed) is only ever deferred: unknown proves nothing about the source token,
+// so such a row is never dropped. Retries back off from 15 minutes to 24 hours; after MAX_ATTEMPTS
+// a row becomes `exhausted`: an operational failure that KEEPS its token for
+// EXHAUSTED_RETENTION_DAYS so an operator can re-queue it after fixing the cause (set status
+// 'pending', attempts 0, next_attempt_at now()); the sweep reports it at error level every run,
+// and purges it — logged as irrevocable — once that window passes. `revoked` and `invalid` rows
+// never carry a token (DB check) and are purged after PURGE_AFTER_DAYS. Nothing here logs a token.
 //
-// The logic takes a RevocationStore, a revoke function and a user-exists probe so vitest covers it
-// with fakes (appleRevocation.test.ts); the Supabase-backed store and the real Apple call are at
+// The logic takes a RevocationStore, a revoke function and an owner-state probe so vitest covers
+// it with fakes (appleRevocation.test.ts); the Supabase-backed store and the real Apple call are at
 // the bottom.
 
 import { makeAppleClientSecret } from './appleClientSecret.ts';
@@ -61,6 +65,13 @@ export type SettlePatch = Partial<Pick<RevocationRow, 'refresh_token' | 'status'
   updated_at: string;
 };
 
+export interface PurgeResult {
+  /** `revoked` / `invalid` rows removed. */
+  settled: number;
+  /** `exhausted` rows removed after their retention window — irrevocable. */
+  exhausted: number;
+}
+
 export interface RevocationStore {
   /** Tokens apple-token-exchange stored for this user. Throws when the table cannot be read. */
   listTokens(userId: string): Promise<StoredAppleToken[]>;
@@ -68,21 +79,23 @@ export interface RevocationStore {
   enqueue(userId: string, tokens: StoredAppleToken[], now: Date): Promise<void>;
   /** Patch one queue row. */
   settle(userId: string, clientId: string, patch: SettlePatch): Promise<void>;
-  /** Delete one queue row (a deferred row whose owner is still alive after PURGE_AFTER_DAYS). */
+  /** Delete one queue row (a deferred row whose owner is confirmed alive after PURGE_AFTER_DAYS). */
   remove(userId: string, clientId: string): Promise<void>;
   /** Pending rows whose next_attempt_at has passed, oldest first. */
   duePending(now: Date, limit: number): Promise<RevocationRow[]>;
-  /** Delete `revoked` / `invalid` rows last touched before `before`; returns how many. Never `exhausted`. */
-  purge(before: Date): Promise<number>;
+  /** Delete `revoked` / `invalid` rows last touched before `settledBefore` and `exhausted` rows last touched before `exhaustedBefore`. */
+  purge(settledBefore: Date, exhaustedBefore: Date): Promise<PurgeResult>;
   /** How many rows are `exhausted` right now (operator attention). */
   exhaustedCount(): Promise<number>;
 }
 
 export const MAX_ATTEMPTS = 20;
 export const PURGE_AFTER_DAYS = 30;
+/** An exhausted row keeps its token this long for an operator to re-queue it; then it is purged as irrevocable. */
+export const EXHAUSTED_RETENTION_DAYS = 90;
 export const REVOKE_TIMEOUT_MS = 8_000;
 export const SWEEP_BATCH = 25;
-/** A row whose owner still exists is looked at again after this long, not every run. */
+/** A row whose owner is alive or unknown is looked at again after this long, not every run. */
 export const DEFER_MS = 60 * 60_000;
 const FIRST_BACKOFF_MS = 15 * 60_000;
 const MAX_BACKOFF_MS = 24 * 60 * 60_000;
@@ -98,10 +111,10 @@ export function nextAttemptAt(attempts: number, now: Date): string {
 }
 
 /**
- * Apple's /auth/revoke answer → what happens to the row. Only `invalid_grant` is terminal: Apple
- * documents it as "the token is invalid or expired", i.e. there is no grant left to revoke. Every
- * other refusal (invalid_client = our client secret, invalid_request = our form, 5xx, 429…) is
- * retried, bounded by MAX_ATTEMPTS.
+ * Apple's /auth/revoke answer → what happens to the row. Only `invalid_grant` is terminal: Apple's
+ * ErrorResponse defines it as "the authorization grant or refresh token is invalid … invalid refresh
+ * token", i.e. there is no grant left to revoke. Every other refusal (invalid_client = our client
+ * secret, invalid_request = our form, 5xx, 429…) is retried, bounded by MAX_ATTEMPTS.
  */
 export function classifyRevokeResponse(status: number, body: { error?: unknown } | null | undefined): RevokeOutcome {
   if (status >= 200 && status < 300) return { kind: 'revoked' };
@@ -111,8 +124,8 @@ export function classifyRevokeResponse(status: number, body: { error?: unknown }
 }
 
 /**
- * Step 1 of delete-account's Apple handling: copy every stored token into the queue so a failure
- * anywhere after this point can be retried by the sweep even once the user is gone. Throws — and
+ * Step 1 of delete-account, run BEFORE anything destructive: copy every stored token into the queue
+ * so a failure anywhere later can be retried by the sweep even once the user is gone. Throws — and
  * nothing has been asked of Apple — when the tokens cannot be read or copied; the caller must then
  * refuse the deletion with a retryable error. Returns the staged tokens for revokeStaged.
  */
@@ -133,10 +146,15 @@ export interface DeletionRevocationResult {
   invalid: number;
 }
 
+/** What delete-account reports when it could not even ask Apple after the deletion: everything stays queued. */
+export function allPending(tokens: StoredAppleToken[]): DeletionRevocationResult {
+  return { revoked: 0, failed: tokens.length, pending: tokens.length, invalid: 0 };
+}
+
 /**
- * Step 3 of delete-account's Apple handling, run only AFTER the auth user is deleted: ask Apple for
- * each staged token and settle its queue row. A settle failure leaves the row `pending` with its
- * token, which the sweep finishes (Apple answers 200 again for a token it already revoked).
+ * Last step of delete-account, run only AFTER the auth user is deleted: ask Apple for each staged
+ * token and settle its queue row. A settle failure leaves the row `pending` with its token, which
+ * the sweep finishes (Apple answers 200 again for a token it already revoked).
  */
 export async function revokeStaged(store: RevocationStore, revoke: RevokeFn, userId: string, tokens: StoredAppleToken[], now: Date): Promise<DeletionRevocationResult> {
   const result: DeletionRevocationResult = { revoked: 0, failed: 0, pending: 0, invalid: 0 };
@@ -162,9 +180,12 @@ export async function revokeStaged(store: RevocationStore, revoke: RevokeFn, use
   return result;
 }
 
+/** What the auth admin API says about a queue row's owner. Only `absent` licenses a revoke. */
+export type OwnerState = 'absent' | 'alive' | 'unknown';
+
 export interface SweepDeps {
-  /** Does this auth user still exist? Throwing counts as "unknown", which is treated as alive. */
-  userExists(userId: string): Promise<boolean>;
+  /** `absent` = not found; `alive` = the user row exists; `unknown` = the probe failed. Throwing counts as `unknown`. */
+  ownerState(userId: string): Promise<OwnerState>;
 }
 
 export interface SweepResult {
@@ -173,45 +194,59 @@ export interface SweepResult {
   revoked: number;
   invalid: number;
   retried: number;
-  /** Rows that reached MAX_ATTEMPTS this run (retained for an operator). */
+  /** Rows that reached MAX_ATTEMPTS this run (retained with their token for an operator). */
   exhausted: number;
-  /** Rows whose owner still exists (deletion failed after staging, or unknown): left alone. */
+  /** Rows whose owner is confirmed alive (deletion failed after staging): deferred, never revoked. */
   deferred: number;
-  /** Deferred rows older than PURGE_AFTER_DAYS that were dropped (token still in apple_sign_in_tokens). */
+  /** Rows whose owner could not be determined: deferred, never revoked, never dropped. */
+  unknown: number;
+  /** Confirmed-alive rows older than PURGE_AFTER_DAYS that were dropped (token still in apple_sign_in_tokens). */
   dropped: number;
   /** `revoked` / `invalid` rows older than PURGE_AFTER_DAYS removed. */
   purged: number;
+  /** `exhausted` rows older than EXHAUSTED_RETENTION_DAYS removed — irrevocable. */
+  purgedExhausted: number;
   /** All `exhausted` rows in the table after this run — operator attention while > 0. */
   exhaustedTotal: number;
 }
 
-/** The cron pass. Revokes only for accounts that are confirmed gone. */
+/** The cron pass. Revokes only for owners that are confirmed gone. */
 export async function sweepRevocations(store: RevocationStore, revoke: RevokeFn, deps: SweepDeps, now: Date, limit = SWEEP_BATCH): Promise<SweepResult> {
-  const result: SweepResult = { processed: 0, revoked: 0, invalid: 0, retried: 0, exhausted: 0, deferred: 0, dropped: 0, purged: 0, exhaustedTotal: 0 };
+  const result: SweepResult = { processed: 0, revoked: 0, invalid: 0, retried: 0, exhausted: 0, deferred: 0, unknown: 0, dropped: 0, purged: 0, purgedExhausted: 0, exhaustedTotal: 0 };
   const due = await store.duePending(now, limit);
   const nowIso = now.toISOString();
-  const cutoff = new Date(now.getTime() - PURGE_AFTER_DAYS * 86_400_000);
+  const dropCutoff = new Date(now.getTime() - PURGE_AFTER_DAYS * 86_400_000);
+  const exhaustedCutoff = new Date(now.getTime() - EXHAUSTED_RETENTION_DAYS * 86_400_000);
+  const deferTo = new Date(now.getTime() + DEFER_MS).toISOString();
   for (const row of due) {
-    let alive = true;
+    let owner: OwnerState = 'unknown';
     try {
-      alive = await deps.userExists(row.user_id);
+      owner = await deps.ownerState(row.user_id);
     } catch {
-      alive = true; // unknown → never revoke on a guess
+      owner = 'unknown';
     }
-    if (alive) {
-      if (new Date(row.updated_at).getTime() < cutoff.getTime()) {
+    if (owner === 'alive') {
+      // delete-account staged this row and then failed before the auth deletion: the source token is
+      // still in apple_sign_in_tokens, so after PURGE_AFTER_DAYS the copy is not needed.
+      if (new Date(row.updated_at).getTime() < dropCutoff.getTime()) {
         await store.remove(row.user_id, row.client_id);
         result.dropped += 1;
       } else {
-        await store.settle(row.user_id, row.client_id, { last_error: 'account still exists', next_attempt_at: new Date(now.getTime() + DEFER_MS).toISOString(), updated_at: row.updated_at });
+        await store.settle(row.user_id, row.client_id, { last_error: 'account still exists', next_attempt_at: deferTo, updated_at: row.updated_at });
         result.deferred += 1;
       }
       continue;
     }
+    if (owner === 'unknown') {
+      // Unknown proves nothing about the source token: never revoke, never drop — look again later.
+      await store.settle(row.user_id, row.client_id, { last_error: 'owner state unknown', next_attempt_at: deferTo, updated_at: row.updated_at });
+      result.unknown += 1;
+      continue;
+    }
     result.processed += 1;
     if (!row.refresh_token) {
-      // Cannot happen while pending (the DB check) — but never call Apple with nothing.
-      await store.settle(row.user_id, row.client_id, { status: 'exhausted', refresh_token: null, last_error: 'no token', updated_at: nowIso });
+      // Cannot happen while pending (the DB check) — but never call Apple with nothing; nothing can recover this row.
+      await store.settle(row.user_id, row.client_id, { status: 'exhausted', last_error: 'no token (irrevocable)', updated_at: nowIso });
       result.exhausted += 1;
       continue;
     }
@@ -225,7 +260,8 @@ export async function sweepRevocations(store: RevocationStore, revoke: RevokeFn,
     } else {
       const attempts = row.attempts + 1;
       if (attempts >= MAX_ATTEMPTS) {
-        await store.settle(row.user_id, row.client_id, { status: 'exhausted', refresh_token: null, attempts, last_error: outcome.reason, updated_at: nowIso });
+        // The token stays on the row: an operator can re-queue it after fixing the cause.
+        await store.settle(row.user_id, row.client_id, { status: 'exhausted', attempts, last_error: outcome.reason, updated_at: nowIso });
         result.exhausted += 1;
       } else {
         await store.settle(row.user_id, row.client_id, { attempts, last_error: outcome.reason, next_attempt_at: nextAttemptAt(attempts, now), updated_at: nowIso });
@@ -233,7 +269,9 @@ export async function sweepRevocations(store: RevocationStore, revoke: RevokeFn,
       }
     }
   }
-  result.purged = await store.purge(cutoff);
+  const purged = await store.purge(dropCutoff, exhaustedCutoff);
+  result.purged = purged.settled;
+  result.purgedExhausted = purged.exhausted;
   result.exhaustedTotal = await store.exhaustedCount();
   return result;
 }
@@ -344,10 +382,12 @@ export function supabaseRevocationStore(admin: AdminClient): RevocationStore {
       if (error) throw new Error(`apple revocation queue unreadable: ${error.message}`);
       return (data ?? []) as RevocationRow[];
     },
-    async purge(before) {
-      const { count, error } = await admin.from('apple_revocations').delete({ count: 'exact' }).in('status', ['revoked', 'invalid']).lt('updated_at', before.toISOString());
-      if (error) throw new Error(`apple revocation purge: ${error.message}`);
-      return count ?? 0;
+    async purge(settledBefore, exhaustedBefore) {
+      const settled = await admin.from('apple_revocations').delete({ count: 'exact' }).in('status', ['revoked', 'invalid']).lt('updated_at', settledBefore.toISOString());
+      if (settled.error) throw new Error(`apple revocation purge: ${settled.error.message}`);
+      const exhausted = await admin.from('apple_revocations').delete({ count: 'exact' }).eq('status', 'exhausted').lt('updated_at', exhaustedBefore.toISOString());
+      if (exhausted.error) throw new Error(`apple revocation purge (exhausted): ${exhausted.error.message}`);
+      return { settled: settled.count ?? 0, exhausted: exhausted.count ?? 0 };
     },
     async exhaustedCount() {
       const { count, error } = await admin.from('apple_revocations').select('user_id', { count: 'exact', head: true }).eq('status', 'exhausted');

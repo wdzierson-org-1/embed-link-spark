@@ -23,7 +23,13 @@ No visible UI change on any platform.
   failure; `invalid` = Apple says the token is already gone. New
   `503 { deleted: false, error: "apple_tokens_unavailable", retryable: true }` when the tokens
   cannot be read or copied — nothing was deleted; call again. Clients keep treating `200` as
-  "account gone" and the `apple` counts as informational.
+  "account gone" and the `apple` counts as informational. *Review follow-up (same day):* staging
+  now runs **before** Stripe and storage, so a `503` really means nothing was touched; once the
+  auth user is deleted the answer is always `200 deleted: true` (anything that fails afterwards is
+  reported as `pending` retry work, never as `deleted: false`); the sweep treats an owner whose
+  state cannot be determined as unknown — deferred, never revoked, never dropped — and an
+  exhausted row keeps its token for 90 days so an operator can re-queue it (migration
+  `20261012230000`), after which it is purged as irrevocable.
 - **Contract — `GET /apple-token-exchange` (new, additive):** same auth as the `POST` →
   `200 { apple_identity, stored, clients: [{ client: "ios" | "web", obtained_at }] }`.
   **iOS (Codex):** before `delete-account`, call it; when `apple_identity && !stored`, ask the person

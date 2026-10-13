@@ -3,27 +3,30 @@
 // Deletes the calling user's account and everything it owns. Contract in
 // docs/PLATFORM_API.md ("Account deletion").
 //
-// Order matters: every step before the final auth delete is safe to retry, so
-// a failure part-way leaves the account intact and the user simply tries again.
+// Order matters: every step before the auth delete is safe to retry, so a
+// failure part-way leaves the account intact and the user simply tries again;
+// once the auth user is gone the answer is `deleted: true`, whatever follows.
 //
-//   1. Stripe — cancel any live subscription on the customer(s) with this
+//   1. Sign in with Apple, staging — FIRST, before anything destructive: copy
+//      every refresh token apple-token-exchange stored for this user into
+//      apple_revocations (no FK to auth.users, so the row outlives the account).
+//      Unreadable tokens or a failed copy refuse the deletion (503, retryable)
+//      with nothing touched (2026-10-12).
+//   2. Stripe — cancel any live subscription on the customer(s) with this
 //      email. The customer record stays (invoice history); it is tagged with
 //      `stash_account_deleted_at` so support can tell.
-//   2. Storage — remove every object under `<user_id>/` in stash-media
+//   3. Storage — remove every object under `<user_id>/` in stash-media
 //      (uploads, previews/, staging/, WhatsApp media). No constraint covers
 //      storage, so this has to be explicit.
-//   3. Sign in with Apple, staging — copy every refresh token apple-token-exchange
-//      stored for this user into apple_revocations (no FK to auth.users, so the
-//      row outlives the account). Unreadable tokens or a failed copy refuse the
-//      deletion (503, retryable): nothing is deleted until the revocation
-//      material is safe (2026-10-12).
 //   4. auth.admin.deleteUser — the DB cascades from migration 20260907120000
 //      take items, embeddings, tags, conversations, phone, profile, grants,
-//      feedback, logs, and the auth.* rows.
+//      feedback, logs, and the auth.* rows. A failure here answers 500 with the
+//      account intact; the staged rows wait and are never swept while it exists.
 //   5. Sign in with Apple, revocation — only now, with the account gone, so a
-//      failed deletion never costs a live account its grant; whatever Apple does
+//      failed deletion never costs a live account its grant. Whatever Apple does
 //      not confirm stays queued for apple-revocation-sweep, which acts only on
-//      accounts confirmed absent.
+//      owners confirmed absent. Nothing in this step can turn the answer into
+//      `deleted: false`: the account is gone, the rest is retry work.
 //
 // Only a person's own session may call this: agent (MCP) tokens are refused.
 
@@ -32,7 +35,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { isAgentToken } from "../_shared/agentToken.ts";
 import { appleEnv } from "../_shared/appleClientSecret.ts";
-import { revokeAtApple, revokeStaged, stageForDeletion, supabaseRevocationStore, type RevokeFn, type StoredAppleToken } from "../_shared/appleRevocation.ts";
+import { allPending, revokeAtApple, revokeStaged, stageForDeletion, supabaseRevocationStore, type DeletionRevocationResult, type RevokeFn, type StoredAppleToken } from "../_shared/appleRevocation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -141,42 +144,49 @@ serve(async (req) => {
   const userId = user.id;
   log("Started", { userId });
 
+  // Stage the Apple revocation material before anything destructive: if it cannot be read or copied
+  // into the queue, nothing has been cancelled, removed or deleted yet, and the call is simply retried.
+  const store = supabaseRevocationStore(admin);
+  const now = new Date();
+  let staged: StoredAppleToken[];
   try {
-    const stripe = user.email
-      ? await cancelStripeSubscriptions(user.email)
-      : { customers: 0, canceled: 0 };
+    staged = await stageForDeletion(store, userId, now);
+  } catch (e) {
+    log("Apple tokens unavailable", { userId, message: e instanceof Error ? e.message : String(e) });
+    return json(503, { deleted: false, error: "apple_tokens_unavailable", retryable: true });
+  }
+  log("Apple staged", { tokens: staged.length });
+
+  let stripe = { customers: 0, canceled: 0 };
+  let paths: string[] = [];
+  try {
+    stripe = user.email ? await cancelStripeSubscriptions(user.email) : stripe;
     log("Stripe done", stripe);
 
-    const paths = await listAllObjectPaths(admin, userId);
+    paths = await listAllObjectPaths(admin, userId);
     await removeObjects(admin, paths);
     log("Storage done", { objects: paths.length });
-
-    const store = supabaseRevocationStore(admin);
-    const now = new Date();
-    let staged;
-    try {
-      staged = await stageForDeletion(store, userId, now);
-    } catch (e) {
-      // The tokens could not be read or copied into the queue: deleting now would cascade the only
-      // revocation material away. Refuse; every step so far is safe to repeat.
-      log("Apple tokens unavailable", { userId, message: e instanceof Error ? e.message : String(e) });
-      return json(503, { deleted: false, error: "apple_tokens_unavailable", retryable: true });
-    }
-    log("Apple staged", { tokens: staged.length });
 
     const { error: deleteError } = await admin.auth.admin.deleteUser(userId);
     if (deleteError) throw new Error(`auth delete: ${deleteError.message}`);
     log("Auth user deleted", { userId });
-
-    // Only now ask Apple: a deletion that failed above must never cost a live account its grant.
-    // Whatever Apple does not confirm stays queued for apple-revocation-sweep.
-    const apple = await revokeStaged(store, revokeNow, userId, staged, now);
-    log("Apple done", apple);
-
-    return json(200, { deleted: true, storageObjects: paths.length, stripe, apple });
   } catch (error) {
+    // The account still exists (every step above is safe to repeat); the staged rows wait and are
+    // never swept while it does.
     const message = error instanceof Error ? error.message : String(error);
     log("ERROR", { userId, message });
     return json(500, { deleted: false, error: message });
   }
+
+  // From here on the account is gone: whatever happens next, the answer is `deleted: true`. Ask
+  // Apple now — a deletion that failed above never cost a live account its grant — and leave
+  // anything Apple does not confirm, or anything that throws here, queued for the sweep.
+  let apple: DeletionRevocationResult = allPending(staged);
+  try {
+    apple = await revokeStaged(store, revokeNow, userId, staged, now);
+    log("Apple done", apple);
+  } catch (error) {
+    log("Apple revocation left to the sweep", { userId, message: error instanceof Error ? error.message : String(error) });
+  }
+  return json(200, { deleted: true, storageObjects: paths.length, stripe, apple });
 });
