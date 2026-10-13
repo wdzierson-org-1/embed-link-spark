@@ -659,22 +659,36 @@ and the call can simply be retried:
    is canceled (customer record kept for invoice history, tagged
    `stash_account_deleted_at`).
 2. Storage — every object under `stash-media/<user_id>/` is removed.
-3. Sign in with Apple (2026-10-12) — every refresh token `apple-token-exchange`
-   stored for the user is first copied into `apple_revocations`, a queue with no
-   foreign key to `auth.users` so it outlives the account; if the tokens cannot
-   be read or copied the call stops here with `503` and nothing is deleted. Then
-   each token is revoked at Apple now (each call gives up after 8 s): a 2xx is
-   `revoked`, Apple's `invalid_grant` (already revoked / expired) is `invalid`,
-   anything else — a refusal, a stalled Apple, missing secrets — leaves the row
-   `pending` and the `apple-revocation-sweep` cron retries it every 15 minutes
-   with backoff (15 min doubling to 24 h, at most 20 attempts, then
-   `exhausted`). Tokens are nulled the moment a row leaves `pending`; terminal
-   rows are purged after 30 days.
+3. Sign in with Apple, staging (2026-10-12) — every refresh token
+   `apple-token-exchange` stored for the user is copied into `apple_revocations`,
+   a queue with no foreign key to `auth.users` so it outlives the account; if
+   the tokens cannot be read or copied the call stops here with `503` and
+   nothing is deleted.
 4. `auth.admin.deleteUser` — DB cascades take items, embeddings, tags,
    conversations, messages, phone number, profile, agent grants, feedback,
    logs, the stored Apple tokens and all `auth.*` rows (migrations
    `20260907120000`, `20261011150000`); the `apple_revocations` rows
-   deliberately survive (`20261012210000`).
+   deliberately survive (`20261012210000`). If this step fails (`500`), the
+   staged rows stay `pending` but are never acted on while the account exists
+   (see the sweep below); the next call re-stages them.
+5. Sign in with Apple, revocation — only now, with the account gone, each staged
+   token is revoked at Apple (each call gives up after 8 s): a 2xx is `revoked`;
+   Apple's `400 invalid_grant` ("the token is invalid or expired" — nothing left
+   to revoke) is `invalid`; anything else — another refusal, a stalled Apple,
+   missing secrets — leaves the row `pending`. The `apple-revocation-sweep`
+   cron (every 15 minutes) retries pending rows **only for accounts confirmed
+   absent** (`auth.admin.getUserById` answers not-found; any other answer
+   counts as alive) with backoff from 15 min doubling to 24 h, at most 20
+   attempts. A row whose owner still exists — a deletion that failed after
+   staging — is deferred (re-checked hourly, never revoked) and dropped after
+   30 days; its token is still in `apple_sign_in_tokens`. After 20 failed
+   attempts a row becomes `exhausted`: an **operational failure**, not a
+   revocation — the token is nulled, the row is retained (never purged) and
+   the sweep logs `OPERATOR ACTION` at error level every run while any exist;
+   an operator resolves it by revoking manually or deleting the row
+   (`select user_id, client_id, attempts, last_error from apple_revocations
+   where status = 'exhausted'`). Tokens are nulled the moment a row leaves
+   `pending`; `revoked` / `invalid` rows are purged after 30 days.
 
 ```
 200 { "deleted": true, "storageObjects": 42, "stripe": { "customers": 1, "canceled": 1 },
@@ -726,7 +740,8 @@ Same auth rules as the `POST` (agent tokens and anonymous sessions refused); no 
 — `apple_identity`: the account carries a Sign in with Apple identity; `stored`: at least one
 refresh token is on file for revocation; `clients`: one entry per stored audience, newest
 exchange date each. `503 { error: "apple_tokens_unavailable", retryable: true }` when the table
-cannot be read. Native clients call it before `delete-account`: when `apple_identity && !stored`,
+cannot be read — distinct from `200 { stored: false }`: a `503`, a timeout or any transport error is
+never evidence that no token exists. Native clients call it before `delete-account`: when `apple_identity && !stored`,
 ask the person to re-authorize with Apple and `POST` the fresh code first; if they decline or it
 fails, proceed with deletion anyway. Never retry an authorization code — it is single-use; this
 endpoint is how a client learns whether a new one is needed.

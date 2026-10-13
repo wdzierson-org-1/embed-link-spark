@@ -12,15 +12,18 @@
 //   2. Storage — remove every object under `<user_id>/` in stash-media
 //      (uploads, previews/, staging/, WhatsApp media). No constraint covers
 //      storage, so this has to be explicit.
-//   3. Sign in with Apple — copy every refresh token apple-token-exchange stored
-//      for this user into apple_revocations (no FK to auth.users, so the row
-//      outlives the account), then revoke at Apple now; whatever Apple does not
-//      confirm stays queued for apple-revocation-sweep (2026-10-12). Unreadable
-//      tokens or a failed copy refuse the deletion (503, retryable): nothing is
-//      deleted until the revocation material is safe.
+//   3. Sign in with Apple, staging — copy every refresh token apple-token-exchange
+//      stored for this user into apple_revocations (no FK to auth.users, so the
+//      row outlives the account). Unreadable tokens or a failed copy refuse the
+//      deletion (503, retryable): nothing is deleted until the revocation
+//      material is safe (2026-10-12).
 //   4. auth.admin.deleteUser — the DB cascades from migration 20260907120000
 //      take items, embeddings, tags, conversations, phone, profile, grants,
 //      feedback, logs, and the auth.* rows.
+//   5. Sign in with Apple, revocation — only now, with the account gone, so a
+//      failed deletion never costs a live account its grant; whatever Apple does
+//      not confirm stays queued for apple-revocation-sweep, which acts only on
+//      accounts confirmed absent.
 //
 // Only a person's own session may call this: agent (MCP) tokens are refused.
 
@@ -29,7 +32,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { isAgentToken } from "../_shared/agentToken.ts";
 import { appleEnv } from "../_shared/appleClientSecret.ts";
-import { revokeAtApple, stageAndRevokeForDeletion, supabaseRevocationStore, type RevokeFn, type StoredAppleToken } from "../_shared/appleRevocation.ts";
+import { revokeAtApple, revokeStaged, stageForDeletion, supabaseRevocationStore, type RevokeFn, type StoredAppleToken } from "../_shared/appleRevocation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -148,20 +151,27 @@ serve(async (req) => {
     await removeObjects(admin, paths);
     log("Storage done", { objects: paths.length });
 
-    let apple;
+    const store = supabaseRevocationStore(admin);
+    const now = new Date();
+    let staged;
     try {
-      apple = await stageAndRevokeForDeletion(supabaseRevocationStore(admin), revokeNow, userId, new Date());
+      staged = await stageForDeletion(store, userId, now);
     } catch (e) {
       // The tokens could not be read or copied into the queue: deleting now would cascade the only
       // revocation material away. Refuse; every step so far is safe to repeat.
       log("Apple tokens unavailable", { userId, message: e instanceof Error ? e.message : String(e) });
       return json(503, { deleted: false, error: "apple_tokens_unavailable", retryable: true });
     }
-    log("Apple done", apple);
+    log("Apple staged", { tokens: staged.length });
 
     const { error: deleteError } = await admin.auth.admin.deleteUser(userId);
     if (deleteError) throw new Error(`auth delete: ${deleteError.message}`);
     log("Auth user deleted", { userId });
+
+    // Only now ask Apple: a deletion that failed above must never cost a live account its grant.
+    // Whatever Apple does not confirm stays queued for apple-revocation-sweep.
+    const apple = await revokeStaged(store, revokeNow, userId, staged, now);
+    log("Apple done", apple);
 
     return json(200, { deleted: true, storageObjects: paths.length, stripe, apple });
   } catch (error) {

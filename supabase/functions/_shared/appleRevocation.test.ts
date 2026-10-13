@@ -2,11 +2,14 @@
 // @vitest-environment node
 //
 // AS-APPLE-REVOCATION acceptance (docs/agent-coordination.md, 2026-10-12): unreadable tokens stop
-// the deletion; a transient Apple failure queues the token and the account still goes; the sweep
-// retries with backoff and settles to revoked / invalid / exhausted with the token nulled; no
-// token is lost before recovery; one owner's deletion never touches another owner's rows.
+// the deletion; tokens are staged before the auth user goes and Apple is asked only afterwards; a
+// transient Apple failure queues the token; the sweep retries with backoff — only for accounts
+// confirmed gone — and settles to revoked / invalid / exhausted with the token nulled; a row whose
+// owner still exists is deferred, never revoked, and dropped after 30 days; exhausted rows are
+// retained and counted for an operator; one owner's deletion never touches another owner's rows.
 import { describe, expect, it } from 'vitest';
 import {
+  DEFER_MS,
   MAX_ATTEMPTS,
   PURGE_AFTER_DAYS,
   appleReadiness,
@@ -14,7 +17,8 @@ import {
   classifyRevokeResponse,
   nextAttemptAt,
   revokeAtApple,
-  stageAndRevokeForDeletion,
+  revokeStaged,
+  stageForDeletion,
   sweepRevocations,
   type RevocationRow,
   type RevocationStore,
@@ -25,6 +29,7 @@ import {
 
 const NOW = new Date('2026-10-12T20:00:00.000Z');
 const MIN = 60_000;
+const DAY = 86_400_000;
 const iso = (d: Date) => d.toISOString();
 
 class FakeStore implements RevocationStore {
@@ -60,6 +65,10 @@ class FakeStore implements RevocationStore {
     if (!current) throw new Error('missing row');
     this.seedRow({ ...current, ...patch });
   }
+  async remove(userId: string, clientId: string) {
+    this.log.push(`remove:${userId}:${clientId}`);
+    this.rows.delete(`${userId}:${clientId}`);
+  }
   async duePending(now: Date, limit: number) {
     return [...this.rows.values()]
       .filter((r) => r.status === 'pending' && r.next_attempt_at <= iso(now))
@@ -69,12 +78,15 @@ class FakeStore implements RevocationStore {
   async purge(before: Date) {
     let n = 0;
     for (const [key, r] of this.rows) {
-      if (r.status !== 'pending' && r.updated_at < iso(before)) {
+      if ((r.status === 'revoked' || r.status === 'invalid') && r.updated_at < iso(before)) {
         this.rows.delete(key);
         n += 1;
       }
     }
     return n;
+  }
+  async exhaustedCount() {
+    return [...this.rows.values()].filter((r) => r.status === 'exhausted').length;
   }
 }
 
@@ -86,6 +98,18 @@ function scriptedRevoke(store: FakeStore, outcomes: Record<string, RevokeOutcome
   };
 }
 
+const ALL_GONE = { userExists: async () => false };
+const existing = (ids: string[]) => ({ userExists: async (id: string) => ids.includes(id) });
+
+const userA = '11111111-1111-4111-8111-111111111111';
+const userB = '22222222-2222-4222-8222-222222222222';
+const gone = '33333333-3333-4333-8333-333333333333'; // a deleted account: no auth.users row exists
+const other = '44444444-4444-4444-8444-444444444444';
+
+const pendingRow = (userId: string, clientId: string, token: string, attempts: number, nextAt: Date, updatedAt = nextAt): RevocationRow => ({
+  user_id: userId, client_id: clientId, refresh_token: token, status: 'pending', attempts, last_error: 'apple 503', next_attempt_at: iso(nextAt), updated_at: iso(updatedAt), revoked_at: null,
+});
+
 describe('classifyRevokeResponse — only invalid_grant is terminal', () => {
   it.each([
     [200, null, { kind: 'revoked' }],
@@ -93,6 +117,7 @@ describe('classifyRevokeResponse — only invalid_grant is terminal', () => {
     [400, { error: 'invalid_grant' }, { kind: 'invalid', reason: 'invalid_grant' }],
     [400, { error: 'invalid_client' }, { kind: 'retry', reason: 'apple 400 invalid_client' }],
     [400, { error: 'invalid_request' }, { kind: 'retry', reason: 'apple 400 invalid_request' }],
+    [400, null, { kind: 'retry', reason: 'apple 400' }],
     [429, null, { kind: 'retry', reason: 'apple 429' }],
     [503, {}, { kind: 'retry', reason: 'apple 503' }],
   ])('%s %j → %j', (status, body, expected) => {
@@ -114,86 +139,92 @@ describe('backoff — bounded, doubling from 15 minutes, capped at 24 hours', ()
     expect(nextAttemptAt(1, NOW)).toBe('2026-10-12T20:15:00.000Z');
     expect(nextAttemptAt(4, NOW)).toBe('2026-10-12T22:00:00.000Z');
   });
-  it('gives up after a bounded number of tries', () => {
+  it('gives up after a bounded number of tries and keeps terminal rows a bounded time', () => {
     expect(MAX_ATTEMPTS).toBe(20);
     expect(PURGE_AFTER_DAYS).toBe(30);
+    expect(DEFER_MS).toBe(60 * MIN);
   });
 });
 
-describe('stageAndRevokeForDeletion — the Apple step of delete-account', () => {
-  const userA = '11111111-1111-4111-8111-111111111111';
-  const userB = '22222222-2222-4222-8222-222222222222';
-
-  it('refuses when the tokens cannot be read: throws, nothing queued, Apple never asked', async () => {
+describe('stageForDeletion — before the auth user goes', () => {
+  it('refuses when the tokens cannot be read: throws, nothing queued', async () => {
     const store = new FakeStore();
     store.failListTokens = true;
-    const revoke = scriptedRevoke(store, {});
-    await expect(stageAndRevokeForDeletion(store, revoke, userA, NOW)).rejects.toThrow('read failed');
-    expect(store.log).toEqual([`list:${userA}`]);
-  });
-
-  it('refuses when the copy into the queue fails: throws before any Apple call', async () => {
-    const store = new FakeStore();
-    store.tokens.set(userA, [{ client_id: 'it.gostash.stash', refresh_token: 'tok-ios' }]);
-    store.failEnqueue = true;
-    const revoke = scriptedRevoke(store, { 'tok-ios': { kind: 'revoked' } });
-    await expect(stageAndRevokeForDeletion(store, revoke, userA, NOW)).rejects.toThrow('copy failed');
-    expect(store.log).toEqual([`list:${userA}`, `enqueue:${userA}:1`]);
-  });
-
-  it('reports zeros and queues nothing for a person without Apple tokens', async () => {
-    const store = new FakeStore();
-    const revoke = scriptedRevoke(store, {});
-    await expect(stageAndRevokeForDeletion(store, revoke, userA, NOW)).resolves.toEqual({ revoked: 0, failed: 0, pending: 0, invalid: 0 });
+    await expect(stageForDeletion(store, userA, NOW)).rejects.toThrow('read failed');
     expect(store.log).toEqual([`list:${userA}`]);
     expect(store.rows.size).toBe(0);
   });
 
-  it('queues every token BEFORE asking Apple, then settles each by outcome', async () => {
+  it('refuses when the copy into the queue fails', async () => {
     const store = new FakeStore();
-    store.tokens.set(userA, [
-      { client_id: 'it.gostash.stash', refresh_token: 'tok-ok' },
-      { client_id: 'it.gostash.web', refresh_token: 'tok-flaky' },
-      { client_id: 'it.gostash.legacy', refresh_token: 'tok-dead' },
-    ]);
+    store.tokens.set(userA, [{ client_id: 'it.gostash.stash', refresh_token: 'tok-ios' }]);
+    store.failEnqueue = true;
+    await expect(stageForDeletion(store, userA, NOW)).rejects.toThrow('copy failed');
+    expect(store.log).toEqual([`list:${userA}`, `enqueue:${userA}:1`]);
+  });
+
+  it('returns nothing and queues nothing for a person without Apple tokens', async () => {
+    const store = new FakeStore();
+    await expect(stageForDeletion(store, userA, NOW)).resolves.toEqual([]);
+    expect(store.log).toEqual([`list:${userA}`]);
+    expect(store.rows.size).toBe(0);
+  });
+
+  it('copies every token as a fresh pending row and hands them back', async () => {
+    const store = new FakeStore();
+    const tokens = [
+      { client_id: 'it.gostash.stash', refresh_token: 'tok-ios' },
+      { client_id: 'it.gostash.web', refresh_token: 'tok-web' },
+    ];
+    store.tokens.set(userA, tokens);
+    await expect(stageForDeletion(store, userA, NOW)).resolves.toEqual(tokens);
+    expect(store.row(userA, 'it.gostash.stash')).toMatchObject({ status: 'pending', refresh_token: 'tok-ios', attempts: 0, next_attempt_at: iso(NOW) });
+    expect(store.row(userA, 'it.gostash.web')).toMatchObject({ status: 'pending', refresh_token: 'tok-web' });
+    expect(store.log.some((l) => l.startsWith('apple:'))).toBe(false); // staging never talks to Apple
+  });
+});
+
+describe('revokeStaged — after the auth user is gone', () => {
+  const staged = [
+    { client_id: 'it.gostash.stash', refresh_token: 'tok-ok' },
+    { client_id: 'it.gostash.web', refresh_token: 'tok-flaky' },
+    { client_id: 'it.gostash.legacy', refresh_token: 'tok-dead' },
+  ];
+
+  it('settles each row by Apple’s answer and reports the counts', async () => {
+    const store = new FakeStore();
+    store.tokens.set(userA, staged);
+    await stageForDeletion(store, userA, NOW);
     const revoke = scriptedRevoke(store, {
       'tok-ok': { kind: 'revoked' },
       'tok-flaky': { kind: 'retry', reason: 'apple 503' },
       'tok-dead': { kind: 'invalid', reason: 'invalid_grant' },
     });
-    const result = await stageAndRevokeForDeletion(store, revoke, userA, NOW);
+    const result = await revokeStaged(store, revoke, userA, staged, NOW);
     expect(result).toEqual({ revoked: 1, failed: 1, pending: 1, invalid: 1 });
-
-    // Order: read → copy all three → only then Apple
-    expect(store.log.slice(0, 2)).toEqual([`list:${userA}`, `enqueue:${userA}:3`]);
-    expect(store.log.indexOf('apple:tok-ok')).toBeGreaterThan(store.log.indexOf(`enqueue:${userA}:3`));
-
-    const ok = store.row(userA, 'it.gostash.stash')!;
-    expect(ok).toMatchObject({ status: 'revoked', refresh_token: null, last_error: null, revoked_at: iso(NOW) });
-
-    const flaky = store.row(userA, 'it.gostash.web')!;
-    expect(flaky).toMatchObject({ status: 'pending', refresh_token: 'tok-flaky', attempts: 1, last_error: 'apple 503', next_attempt_at: '2026-10-12T20:15:00.000Z' });
-
-    const dead = store.row(userA, 'it.gostash.legacy')!;
-    expect(dead).toMatchObject({ status: 'invalid', refresh_token: null, last_error: 'invalid_grant' });
+    expect(store.row(userA, 'it.gostash.stash')).toMatchObject({ status: 'revoked', refresh_token: null, last_error: null, revoked_at: iso(NOW) });
+    expect(store.row(userA, 'it.gostash.web')).toMatchObject({ status: 'pending', refresh_token: 'tok-flaky', attempts: 1, last_error: 'apple 503', next_attempt_at: '2026-10-12T20:15:00.000Z' });
+    expect(store.row(userA, 'it.gostash.legacy')).toMatchObject({ status: 'invalid', refresh_token: null, last_error: 'invalid_grant' });
   });
 
   it('keeps the token in the queue when the settle itself fails (the sweep finishes it)', async () => {
     const store = new FakeStore();
-    store.tokens.set(userA, [{ client_id: 'it.gostash.stash', refresh_token: 'tok-ok' }]);
-    const revoke = scriptedRevoke(store, { 'tok-ok': { kind: 'revoked' } });
+    const one = [{ client_id: 'it.gostash.stash', refresh_token: 'tok-ok' }];
+    store.tokens.set(userA, one);
+    await stageForDeletion(store, userA, NOW);
     store.failSettle = true;
-    await expect(stageAndRevokeForDeletion(store, revoke, userA, NOW)).resolves.toEqual({ revoked: 1, failed: 0, pending: 0, invalid: 0 });
+    await expect(revokeStaged(store, scriptedRevoke(store, { 'tok-ok': { kind: 'revoked' } }), userA, one, NOW)).resolves.toEqual({ revoked: 1, failed: 0, pending: 0, invalid: 0 });
     expect(store.row(userA, 'it.gostash.stash')).toMatchObject({ status: 'pending', refresh_token: 'tok-ok' });
   });
 
   it('only ever touches the caller’s own rows', async () => {
     const store = new FakeStore();
-    store.tokens.set(userA, [{ client_id: 'it.gostash.stash', refresh_token: 'tok-a' }]);
+    const mine = [{ client_id: 'it.gostash.stash', refresh_token: 'tok-a' }];
+    store.tokens.set(userA, mine);
     store.tokens.set(userB, [{ client_id: 'it.gostash.stash', refresh_token: 'tok-b' }]);
-    store.seedRow({ user_id: userB, client_id: 'it.gostash.web', refresh_token: 'tok-b-old', status: 'pending', attempts: 2, last_error: 'apple 500', next_attempt_at: iso(NOW), updated_at: iso(NOW), revoked_at: null });
-    const revoke = scriptedRevoke(store, { 'tok-a': { kind: 'retry', reason: 'timeout' } });
-    await stageAndRevokeForDeletion(store, revoke, userA, NOW);
+    store.seedRow(pendingRow(userB, 'it.gostash.web', 'tok-b-old', 2, NOW));
+    await stageForDeletion(store, userA, NOW);
+    await revokeStaged(store, scriptedRevoke(store, { 'tok-a': { kind: 'retry', reason: 'timeout' } }), userA, mine, NOW);
     expect(store.log.filter((l) => l.includes(userB))).toEqual([]);
     expect(store.log.filter((l) => l.startsWith('apple:'))).toEqual(['apple:tok-a']);
     expect(store.row(userB, 'it.gostash.stash')).toBeUndefined();
@@ -202,13 +233,7 @@ describe('stageAndRevokeForDeletion — the Apple step of delete-account', () =>
 });
 
 describe('sweepRevocations — the cron pass', () => {
-  const gone = '33333333-3333-4333-8333-333333333333'; // a deleted account: no auth.users row exists
-  const other = '44444444-4444-4444-8444-444444444444';
-  const pendingRow = (userId: string, clientId: string, token: string, attempts: number, nextAt: Date): RevocationRow => ({
-    user_id: userId, client_id: clientId, refresh_token: token, status: 'pending', attempts, last_error: 'apple 503', next_attempt_at: iso(nextAt), updated_at: iso(nextAt), revoked_at: null,
-  });
-
-  it('retries due rows and settles them: revoked, invalid, backoff, exhausted; leaves the rest alone', async () => {
+  it('retries due rows of absent accounts and settles them: revoked, invalid, backoff, exhausted; leaves the rest alone', async () => {
     const store = new FakeStore();
     const due = new Date(NOW.getTime() - MIN);
     const later = new Date(NOW.getTime() + 60 * MIN);
@@ -224,8 +249,8 @@ describe('sweepRevocations — the cron pass', () => {
       'tok-4': { kind: 'retry', reason: 'timeout' },
     });
 
-    const result = await sweepRevocations(store, revoke, NOW);
-    expect(result).toEqual({ processed: 4, revoked: 1, invalid: 1, retried: 1, exhausted: 1, purged: 0 });
+    const result = await sweepRevocations(store, revoke, ALL_GONE, NOW);
+    expect(result).toEqual({ processed: 4, revoked: 1, invalid: 1, retried: 1, exhausted: 1, deferred: 0, dropped: 0, purged: 0, exhaustedTotal: 1 });
 
     expect(store.row(gone, 'c-revoked')).toMatchObject({ status: 'revoked', refresh_token: null, revoked_at: iso(NOW) });
     expect(store.row(gone, 'c-invalid')).toMatchObject({ status: 'invalid', refresh_token: null, last_error: 'invalid_grant' });
@@ -235,31 +260,72 @@ describe('sweepRevocations — the cron pass', () => {
     expect(store.log.filter((l) => l.startsWith('apple:'))).toEqual(['apple:tok-1', 'apple:tok-2', 'apple:tok-3', 'apple:tok-4']);
   });
 
+  it('never revokes for an account that still exists: the row is deferred an hour, token kept, Apple not asked', async () => {
+    const store = new FakeStore();
+    const due = new Date(NOW.getTime() - MIN);
+    store.seedRow(pendingRow(userA, 'c-live', 'tok-live', 1, due, new Date(NOW.getTime() - 2 * DAY)));
+    store.seedRow(pendingRow(gone, 'c-gone', 'tok-gone', 1, due));
+    const revoke = scriptedRevoke(store, { 'tok-gone': { kind: 'revoked' } });
+    const result = await sweepRevocations(store, revoke, existing([userA]), NOW);
+    expect(result).toMatchObject({ processed: 1, revoked: 1, deferred: 1, dropped: 0 });
+    expect(store.log.filter((l) => l.startsWith('apple:'))).toEqual(['apple:tok-gone']);
+    expect(store.row(userA, 'c-live')).toMatchObject({
+      status: 'pending',
+      refresh_token: 'tok-live',
+      attempts: 1,
+      last_error: 'account still exists',
+      next_attempt_at: iso(new Date(NOW.getTime() + DEFER_MS)),
+      updated_at: iso(new Date(NOW.getTime() - 2 * DAY)), // age preserved for the 30-day drop
+    });
+  });
+
+  it('drops a deferred row once it is older than the retention window (its token still lives in apple_sign_in_tokens)', async () => {
+    const store = new FakeStore();
+    const due = new Date(NOW.getTime() - MIN);
+    store.seedRow(pendingRow(userA, 'c-stale', 'tok-stale', 1, due, new Date(NOW.getTime() - (PURGE_AFTER_DAYS + 1) * DAY)));
+    const result = await sweepRevocations(store, scriptedRevoke(store, {}), existing([userA]), NOW);
+    expect(result).toMatchObject({ processed: 0, deferred: 0, dropped: 1 });
+    expect(store.row(userA, 'c-stale')).toBeUndefined();
+    expect(store.log.some((l) => l.startsWith('apple:'))).toBe(false);
+  });
+
+  it('treats an unanswerable existence check as alive (defers, never revokes on a guess)', async () => {
+    const store = new FakeStore();
+    store.seedRow(pendingRow(userA, 'c-unknown', 'tok-unknown', 1, new Date(NOW.getTime() - MIN)));
+    const flaky = { userExists: async () => { throw new Error('auth admin unreachable'); } };
+    const result = await sweepRevocations(store, scriptedRevoke(store, {}), flaky, NOW);
+    expect(result).toMatchObject({ processed: 0, deferred: 1 });
+    expect(store.row(userA, 'c-unknown')).toMatchObject({ status: 'pending', refresh_token: 'tok-unknown' });
+    expect(store.log.some((l) => l.startsWith('apple:'))).toBe(false);
+  });
+
   it('respects the batch limit, oldest first', async () => {
     const store = new FakeStore();
     store.seedRow(pendingRow(gone, 'c-older', 'tok-older', 1, new Date(NOW.getTime() - 10 * MIN)));
     store.seedRow(pendingRow(gone, 'c-newer', 'tok-newer', 1, new Date(NOW.getTime() - 5 * MIN)));
     const revoke = scriptedRevoke(store, { 'tok-older': { kind: 'revoked' }, 'tok-newer': { kind: 'revoked' } });
-    const result = await sweepRevocations(store, revoke, NOW, 1);
+    const result = await sweepRevocations(store, revoke, ALL_GONE, NOW, 1);
     expect(result.processed).toBe(1);
     expect(store.log.filter((l) => l.startsWith('apple:'))).toEqual(['apple:tok-older']);
     expect(store.row(gone, 'c-newer')).toMatchObject({ status: 'pending' });
   });
 
-  it('purges terminal rows older than the retention window and keeps recent ones', async () => {
+  it('purges old revoked/invalid rows, keeps recent ones, and RETAINS exhausted rows for an operator', async () => {
     const store = new FakeStore();
-    const old = new Date(NOW.getTime() - (PURGE_AFTER_DAYS + 1) * 86_400_000);
-    const recent = new Date(NOW.getTime() - 2 * 86_400_000);
+    const old = new Date(NOW.getTime() - (PURGE_AFTER_DAYS + 1) * DAY);
+    const recent = new Date(NOW.getTime() - 2 * DAY);
     store.seedRow({ user_id: gone, client_id: 'c-old-revoked', refresh_token: null, status: 'revoked', attempts: 0, last_error: null, next_attempt_at: iso(old), updated_at: iso(old), revoked_at: iso(old) });
+    store.seedRow({ user_id: gone, client_id: 'c-old-invalid', refresh_token: null, status: 'invalid', attempts: 0, last_error: 'invalid_grant', next_attempt_at: iso(old), updated_at: iso(old), revoked_at: null });
     store.seedRow({ user_id: gone, client_id: 'c-old-exhausted', refresh_token: null, status: 'exhausted', attempts: MAX_ATTEMPTS, last_error: 'timeout', next_attempt_at: iso(old), updated_at: iso(old), revoked_at: null });
     store.seedRow({ user_id: gone, client_id: 'c-recent', refresh_token: null, status: 'revoked', attempts: 0, last_error: null, next_attempt_at: iso(recent), updated_at: iso(recent), revoked_at: iso(recent) });
-    store.seedRow(pendingRow(other, 'c-pending-old', 'tok-p', 2, new Date(NOW.getTime() + 60 * MIN)));
-    const result = await sweepRevocations(store, scriptedRevoke(store, {}), NOW);
-    expect(result).toEqual({ processed: 0, revoked: 0, invalid: 0, retried: 0, exhausted: 0, purged: 2 });
+    store.seedRow(pendingRow(other, 'c-pending-later', 'tok-p', 2, new Date(NOW.getTime() + 60 * MIN)));
+    const result = await sweepRevocations(store, scriptedRevoke(store, {}), ALL_GONE, NOW);
+    expect(result).toEqual({ processed: 0, revoked: 0, invalid: 0, retried: 0, exhausted: 0, deferred: 0, dropped: 0, purged: 2, exhaustedTotal: 1 });
     expect(store.row(gone, 'c-old-revoked')).toBeUndefined();
-    expect(store.row(gone, 'c-old-exhausted')).toBeUndefined();
+    expect(store.row(gone, 'c-old-invalid')).toBeUndefined();
+    expect(store.row(gone, 'c-old-exhausted')).toMatchObject({ status: 'exhausted', refresh_token: null });
     expect(store.row(gone, 'c-recent')).toBeDefined();
-    expect(store.row(other, 'c-pending-old')).toBeDefined();
+    expect(store.row(other, 'c-pending-later')).toBeDefined();
   });
 });
 
