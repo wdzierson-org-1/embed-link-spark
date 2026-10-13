@@ -5,6 +5,7 @@ import { notesSnippet, plainNotes } from '../_shared/notes.ts';
 import { coerceSearchTypes } from '../_shared/search.ts';
 import { afterDraining } from '../_shared/capture.ts';
 import { requireEntitlement } from '../_shared/entitlementGate.ts';
+import { buildAskSystemPrompt } from '../_shared/askGuidance.ts';
 
 // Ask Stash — agentic retrieval. The model drives search itself through three
 // tools (search_stash, browse_catalog, get_item) instead of a fixed
@@ -48,38 +49,8 @@ const ITEM_NOTES_CHARS = 4000;
 const CATALOG_MAX_ITEMS = 1500;
 const CATALOG_DESC_CHARS = 100;
 
-// Canned product knowledge, available to every user regardless of what they've
-// saved — so "how do I use Stash?" questions get real answers, especially for
-// brand-new accounts with nothing stashed yet.
-const APP_GUIDE = `
-WHAT STASH IS: A personal memory app. Save links, notes, files, photos, voice
-memos — Stash understands each one, describes it, and makes it findable later.
-
-SAVING THINGS:
-- On the home page, paste a link anywhere on the screen to capture it instantly.
-- Drop files (images, PDFs, audio, video) onto the input box, or click to attach.
-- Type (or dictate) a note straight into the input box.
-- By phone: add your number in Settings → Phone Number, then text links, photos,
-  or voice notes to your Stash WhatsApp/SMS number — no app needed.
-
-WHAT HAPPENS AUTOMATICALLY: Links fetch their own title, preview image, and full
-page text. PDFs are read and summarized. Voice notes are transcribed. Images are
-analyzed. Everything gets suggested tags and becomes searchable.
-
-FINDING THINGS: Search by keyword from the home page, filter by tag, or just ask
-this assistant ("Ask Stash") — answers cite the saved items they came from.
-
-EDITING: Click an item's title to open it. Title, description, and notes save
-automatically as you type. You can add or replace an item's image, manage its
-tags, or delete it from the same panel.
-
-SHARING: In an item's edit panel, flip the Public Feed toggle to publish it to
-your public page at gostash.it/feed/<your-username>. Shared items can carry a
-yellow sticky note and receive comments. You can follow other people's feeds.
-
-ACCOUNT: Settings covers your profile, phone number, tags, and subscription.
-Stash is free for 14 days, then $4.99/month, cancel anytime.
-`.trim();
+// The system prompt (retrieval rules, answer/citation rules, capability limits,
+// app guide) lives in ../_shared/askGuidance.ts so it is unit-tested.
 
 const TOOLS = [
   {
@@ -463,14 +434,7 @@ serve(async (req) => {
     };
 
     const today = new Date().toISOString().slice(0, 10);
-    const systemPrompt = `You are Stash, the user's personal memory assistant. Today is ${today}.
-
-For ANY question about the user's saved content, use the tools before answering — never assume something isn't saved without looking. Always run search_stash with the user's own key words first (before browse_catalog, and never with a title copied from the catalog as the query); then rewrite into focused queries as needed; for follow-up questions, resolve pronouns and references from the conversation before searching. A "Notes:" line on a result is the user's own note on that item — their words about why they saved it — and outweighs anything in the snippet: when a note matches the question, that item is the answer. Date filters are reliable anchors ("last week" → after). Type filters are guesses — the stored type often differs from the user's word: YouTube and other web videos are saved as links (shown as link/video), voice notes and memos are audio, and "note" can mean a text note OR a voice note. Results labeled "outside your filters" are just as real as the rest — usually the filter guess was wrong, not the item missing. Use browse_catalog when the message is only a word or two, when recall is fuzzy ("that site from a while ago"), for "what do I have about…" questions, or when search results look irrelevant. NEVER tell the user something isn't saved until an unfiltered search or browse_catalog came up empty too. When several items could plausibly match a fuzzy memory, offer the top 2–4 candidates and ask which one they mean. Use get_item to read an item in full when a snippet isn't enough — especially before quoting details, and always before citing an item you found only in browse_catalog.
-
-Answer using ONLY what the tools return, and cite the saved items you used. When you mention an item by name, write its title as a markdown link whose destination is the item's bracket number — like [Beyond the Basics](#3) — so the user can open the card directly. For claims that don't name the item, append the bare bracket number like [3] — but never add one to a sentence whose item title is already linked. Only cite items you actually used. Be concise and direct. If searching turned up nothing relevant, say so plainly and suggest different keywords. If the user asks how to use the Stash app itself, answer from the APP GUIDE (no citations, no search needed).
-
-APP GUIDE:
-${APP_GUIDE}`;
+    const systemPrompt = buildAskSystemPrompt(today);
 
     const trimmedHistory = Array.isArray(conversationHistory)
       ? conversationHistory.slice(-MAX_HISTORY_MESSAGES)
