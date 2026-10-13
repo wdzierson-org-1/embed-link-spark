@@ -14,11 +14,13 @@ Two App Store review follow-ups (`docs/agent-coordination.md`, AS-APPLE-REVOCATI
 No visible UI change on any platform.
 
 - **Contract — `POST /delete-account`:** every Sign in with Apple refresh token on file is copied
-  into a queue that outlives the account **before** Apple is asked and before the user row is
-  deleted. The response's `apple` object is now `{ revoked, failed, pending, invalid }` (`failed`
-  equals `pending` and is kept for existing clients): `pending` = Apple did not confirm (transient
-  failure, timeout, missing secrets) and a server cron retries with backoff for up to 20 attempts;
-  `invalid` = Apple says the token is already gone. New
+  into a queue that outlives the account **before** the user row is deleted, and Apple is asked
+  only **after** the deletion succeeded (a failed deletion never revokes a live account's grant).
+  The response's `apple` object is now `{ revoked, failed, pending, invalid }` (`failed` equals
+  `pending` and is kept for existing clients): `pending` = Apple did not confirm (transient
+  failure, timeout, missing secrets) and a server cron retries with backoff for up to 20 attempts,
+  only for accounts confirmed gone, after which the row is retained as an operator-visible
+  failure; `invalid` = Apple says the token is already gone. New
   `503 { deleted: false, error: "apple_tokens_unavailable", retryable: true }` when the tokens
   cannot be read or copied — nothing was deleted; call again. Clients keep treating `200` as
   "account gone" and the `apple` counts as informational.
