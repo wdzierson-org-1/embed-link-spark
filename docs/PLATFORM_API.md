@@ -652,55 +652,69 @@ target account is always the JWT's owner, and agent (MCP) tokens are refused
 with `403`. Irreversible, so clients gate it behind an explicit
 type-to-confirm step (web: type `DELETE`).
 
-Server order, chosen so that a failure part-way leaves the account intact
-and the call can simply be retried:
+Server order, chosen so that a failure before the auth deletion leaves the
+account intact and the call can simply be retried, and so that once the auth
+user is gone the answer is always `deleted: true`:
 
-1. Stripe — every live subscription on the customer(s) with the user's email
+1. Sign in with Apple, staging (2026-10-12) — first, before anything
+   destructive: every refresh token `apple-token-exchange` stored for the user
+   is copied into `apple_revocations`, a queue with no foreign key to
+   `auth.users` so it outlives the account. If the tokens cannot be read or
+   copied the call stops here with `503` and **nothing has been touched** — no
+   subscription cancelled, no file removed.
+2. Stripe — every live subscription on the customer(s) with the user's email
    is canceled (customer record kept for invoice history, tagged
    `stash_account_deleted_at`).
-2. Storage — every object under `stash-media/<user_id>/` is removed.
-3. Sign in with Apple, staging (2026-10-12) — every refresh token
-   `apple-token-exchange` stored for the user is copied into `apple_revocations`,
-   a queue with no foreign key to `auth.users` so it outlives the account; if
-   the tokens cannot be read or copied the call stops here with `503` and
-   nothing is deleted.
+3. Storage — every object under `stash-media/<user_id>/` is removed.
 4. `auth.admin.deleteUser` — DB cascades take items, embeddings, tags,
    conversations, messages, phone number, profile, agent grants, feedback,
    logs, the stored Apple tokens and all `auth.*` rows (migrations
    `20260907120000`, `20261011150000`); the `apple_revocations` rows
-   deliberately survive (`20261012210000`). If this step fails (`500`), the
-   staged rows stay `pending` but are never acted on while the account exists
-   (see the sweep below); the next call re-stages them.
+   deliberately survive (`20261012210000`). A failure in steps 2–4 answers
+   `500` with the account intact; the staged rows stay `pending` but are never
+   acted on while the account exists (see the sweep below), and the next call
+   re-stages them.
 5. Sign in with Apple, revocation — only now, with the account gone, each staged
    token is revoked at Apple (each call gives up after 8 s): a 2xx is `revoked`;
-   Apple's `400 invalid_grant` ("the token is invalid or expired" — nothing left
-   to revoke) is `invalid`; anything else — another refusal, a stalled Apple,
-   missing secrets — leaves the row `pending`. The `apple-revocation-sweep`
-   cron (every 15 minutes) retries pending rows **only for accounts confirmed
-   absent** (`auth.admin.getUserById` answers not-found; any other answer
-   counts as alive) with backoff from 15 min doubling to 24 h, at most 20
-   attempts. A row whose owner still exists — a deletion that failed after
-   staging — is deferred (re-checked hourly, never revoked) and dropped after
-   30 days; its token is still in `apple_sign_in_tokens`. After 20 failed
-   attempts a row becomes `exhausted`: an **operational failure**, not a
-   revocation — the token is nulled, the row is retained (never purged) and
-   the sweep logs `OPERATOR ACTION` at error level every run while any exist;
-   an operator resolves it by revoking manually or deleting the row
-   (`select user_id, client_id, attempts, last_error from apple_revocations
-   where status = 'exhausted'`). Tokens are nulled the moment a row leaves
-   `pending`; `revoked` / `invalid` rows are purged after 30 days.
+   Apple's `400 invalid_grant` (its ErrorResponse: "the authorization grant or
+   refresh token is invalid … invalid refresh token" — nothing left to revoke)
+   is `invalid`; anything else — another refusal, a stalled Apple, missing
+   secrets — leaves the row `pending`. Nothing in this step can change the
+   answer: if it throws, every staged token is reported `pending` and the
+   response is still `200 deleted: true`.
+
+   The `apple-revocation-sweep` cron (every 15 minutes) then retries pending
+   rows **only for owners confirmed absent** (`auth.admin.getUserById` answers
+   not-found) with backoff from 15 min doubling to 24 h, at most 20 attempts.
+   An owner confirmed **alive** (a deletion that failed after staging) is
+   deferred — re-checked hourly, never revoked — and the row is dropped after
+   30 days because its token is still in `apple_sign_in_tokens`. An owner whose
+   state is **unknown** (the probe failed, any answer other than found /
+   not-found) is deferred and **never dropped**: unknown proves nothing about
+   the source token. After 20 failed attempts a row becomes `exhausted`: an
+   **operational failure**, not a revocation — the row **keeps its token for
+   90 days** so an operator can recover it, and the sweep logs `OPERATOR
+   ACTION` at error level every run while any exist. Recovery: fix the cause
+   shown in `last_error`, then re-queue —
+   `update apple_revocations set status = 'pending', attempts = 0,
+   next_attempt_at = now(), last_error = null where status = 'exhausted' and
+   user_id = '<id>' and client_id = '<audience>'`; the sweep retries it. After
+   90 days without recovery the row is purged and logged `IRREVOCABLE`.
+   `revoked` / `invalid` rows never carry a token and are purged after 30 days.
 
 ```
 200 { "deleted": true, "storageObjects": 42, "stripe": { "customers": 1, "canceled": 1 },
       "apple": { "revoked": 1, "failed": 0, "pending": 0, "invalid": 0 } }
+      ← the account is gone, whatever `apple` says; clear the local session
 401 { "error": "Invalid or expired token" }
 403 { "error": "Agent tokens cannot delete an account" }
 500 { "deleted": false, "error": "<step>: <reason>" }
-      ← the account is intact; Stripe cancellations, removed files and Apple
-        revocations that already ran are not undone — call again
+      ← the account is intact (steps 2–4 failed); Stripe cancellations and
+        removed files that already ran are not undone — call again. Never
+        answered once the auth user has been deleted.
 503 { "deleted": false, "error": "apple_tokens_unavailable", "retryable": true }
-      ← (2026-10-12) the stored Apple tokens could not be read or queued; the
-        account is intact — call again
+      ← (2026-10-12) the stored Apple tokens could not be read or queued;
+        nothing was touched — call again
 ```
 
 `apple.revoked` counts the stored tokens whose revoke Apple answered with 2xx now

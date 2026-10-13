@@ -1,12 +1,12 @@
 // supabase/functions/delete-account/index.test.ts
 // @vitest-environment node
 //
-// The handler end to end with the Deno/esm imports mocked. The Apple step's contract changed on
-// 2026-10-12 (AS-APPLE-REVOCATION): tokens are staged in apple_revocations BEFORE the user is
-// deleted, Apple is asked only AFTER the auth deletion succeeded (a failed deletion never costs a
-// live account its grant); unreadable tokens or a failed copy refuse the deletion (503); Apple
-// failures leave the row pending. Queue/sweep logic itself is covered in
-// _shared/appleRevocation.test.ts.
+// The handler end to end with the Deno/esm imports mocked. The Apple step's contract (2026-10-12,
+// AS-APPLE-REVOCATION + Codex's review follow-up): tokens are staged in apple_revocations BEFORE
+// anything destructive (Stripe, storage, the auth user); a staging failure answers 503 with zero
+// downstream destructive calls; Apple is asked only AFTER the auth deletion succeeded; once the auth
+// user is gone the answer is 200 deleted:true whatever happens next; Apple failures leave the row
+// pending. Queue/sweep logic itself is covered in _shared/appleRevocation.test.ts.
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 
 const state = vi.hoisted(() => ({
@@ -14,7 +14,9 @@ const state = vi.hoisted(() => ({
   tokens: [] as Array<{ client_id: string; refresh_token: string }>,
   tokensError: null as null | string,
   queueError: null as null | string,
+  updateThrows: null as null | string,
   deleteError: null as null | string,
+  storageError: null as null | string,
   queue: new Map<string, Record<string, unknown>>(),
   calls: [] as string[],
   signals: [] as Array<AbortSignal | null | undefined>,
@@ -38,7 +40,18 @@ vi.mock('https://esm.sh/@supabase/supabase-js@2.57.2', () => ({
         },
       },
     },
-    storage: { from: () => ({ list: async () => ({ data: [], error: null }), remove: async () => ({ error: null }) }) },
+    storage: {
+      from: () => ({
+        list: async () => {
+          state.calls.push('storage:list');
+          return state.storageError ? { data: null, error: { message: state.storageError } } : { data: [], error: null };
+        },
+        remove: async () => {
+          state.calls.push('storage:remove');
+          return { error: null };
+        },
+      }),
+    },
     from: (table: string) => {
       if (table === 'apple_sign_in_tokens') {
         return { select: () => ({ eq: async () => (state.tokensError ? { data: null, error: { message: state.tokensError } } : { data: state.tokens, error: null }) }) };
@@ -51,15 +64,18 @@ vi.mock('https://esm.sh/@supabase/supabase-js@2.57.2', () => ({
             for (const r of rows) state.queue.set(String(r.client_id), { ...r });
             return { error: null };
           },
-          update: (patch: Record<string, unknown>) => ({
-            eq: () => ({
-              eq: async (_column: string, clientId: string) => {
-                const row = state.queue.get(clientId);
-                if (row) state.queue.set(clientId, { ...row, ...patch });
-                return { error: null };
-              },
-            }),
-          }),
+          update: (patch: Record<string, unknown>) => {
+            if (state.updateThrows) throw new Error(state.updateThrows);
+            return {
+              eq: () => ({
+                eq: async (_column: string, clientId: string) => {
+                  const row = state.queue.get(clientId);
+                  if (row) state.queue.set(clientId, { ...row, ...patch });
+                  return { error: null };
+                },
+              }),
+            };
+          },
         };
       }
       throw new Error(`unexpected table ${table}`);
@@ -97,7 +113,9 @@ beforeEach(() => {
   state.tokens = [];
   state.tokensError = null;
   state.queueError = null;
+  state.updateThrows = null;
   state.deleteError = null;
+  state.storageError = null;
   state.queue = new Map();
   state.calls = [];
   state.signals = [];
@@ -118,15 +136,18 @@ afterEach(() => {
 
 const del = () => state.handler!(new Request('https://x/delete-account', { method: 'POST', headers: { Authorization: `Bearer ${sessionJwt}` } }));
 const REVOKE = 'https://appleid.apple.com/auth/revoke';
+const WEB = { client_id: 'it.gostash.web', refresh_token: 'r-web' };
+const IOS = { client_id: 'it.gostash.stash', refresh_token: 'r-ios' };
 
 describe('delete-account — Apple revocation', () => {
-  it('queues every stored Apple token, deletes the user, and only then revokes each', async () => {
-    state.tokens = [{ client_id: 'it.gostash.web', refresh_token: 'r-web' }, { client_id: 'it.gostash.stash', refresh_token: 'r-ios' }];
+  it('stages every token first, then storage, then deletes the user, and only then revokes each', async () => {
+    state.tokens = [WEB, IOS];
     const res = await del();
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ deleted: true, apple: { revoked: 2, failed: 0, pending: 0, invalid: 0 } });
     expect(state.calls).toEqual([
-      'queue:it.gostash.web,it.gostash.stash', // the copy that outlives the account comes first
+      'queue:it.gostash.web,it.gostash.stash', // the copy that outlives the account comes before anything destructive
+      'storage:list',
       'deleteUser', // the account goes before Apple hears anything
       `revoke:it.gostash.web:r-web:refresh_token:${REVOKE}`,
       `revoke:it.gostash.stash:r-ios:refresh_token:${REVOKE}`,
@@ -139,7 +160,7 @@ describe('delete-account — Apple revocation', () => {
     expect(joined).not.toMatch(/r-web|r-ios|eyJ/);
   });
 
-  it('refuses to delete when the stored tokens cannot be read (nothing queued, Apple never asked)', async () => {
+  it('refuses with 503 when the stored tokens cannot be read: zero destructive calls (no Stripe, no storage, no auth delete, no Apple)', async () => {
     state.tokensError = 'connection reset';
     const res = await del();
     expect(res.status).toBe(503);
@@ -147,8 +168,8 @@ describe('delete-account — Apple revocation', () => {
     expect(state.calls).toEqual([]);
   });
 
-  it('refuses to delete when the copy into the queue fails (Apple never asked)', async () => {
-    state.tokens = [{ client_id: 'it.gostash.web', refresh_token: 'r-web' }];
+  it('refuses with 503 when the copy into the queue fails: zero destructive calls', async () => {
+    state.tokens = [WEB];
     state.queueError = 'permission denied';
     const res = await del();
     expect(res.status).toBe(503);
@@ -157,65 +178,99 @@ describe('delete-account — Apple revocation', () => {
     expect(logged()).not.toMatch(/r-web|eyJ/);
   });
 
-  it('leaves the queued token untouched and reports 500 when the auth deletion fails (Apple never asked)', async () => {
-    state.tokens = [{ client_id: 'it.gostash.web', refresh_token: 'r-web' }];
+  it('answers 500 with the account intact when storage fails after staging (staged rows wait; Apple never asked)', async () => {
+    state.tokens = [WEB];
+    state.storageError = 'bucket offline';
+    const res = await del();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ deleted: false, error: 'storage list user-1: bucket offline' });
+    expect(state.calls).toEqual(['queue:it.gostash.web', 'storage:list']);
+    expect(state.queue.get('it.gostash.web')).toMatchObject({ status: 'pending', refresh_token: 'r-web', attempts: 0 });
+  });
+
+  it('answers 500 with the account intact and the queued token untouched when the auth deletion fails (Apple never asked)', async () => {
+    state.tokens = [WEB];
     state.deleteError = 'boom';
     const res = await del();
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ deleted: false, error: 'auth delete: boom' });
-    expect(state.calls).toEqual(['queue:it.gostash.web', 'deleteUser']);
+    expect(state.calls).toEqual(['queue:it.gostash.web', 'storage:list', 'deleteUser']);
     // The row waits with its token; the sweep leaves it alone while the account exists, and the
     // next delete-account run re-stages it.
     expect(state.queue.get('it.gostash.web')).toMatchObject({ status: 'pending', refresh_token: 'r-web', attempts: 0 });
     expect(logged()).not.toMatch(/r-web|eyJ/);
   });
 
+  it('answers 200 deleted:true when the queue update throws after the auth user is gone (the row stays pending for the sweep)', async () => {
+    state.tokens = [WEB];
+    state.updateThrows = 'queue down';
+    const res = await del();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ deleted: true, apple: { revoked: 1, failed: 0, pending: 0, invalid: 0 } });
+    expect(state.calls).toEqual(['queue:it.gostash.web', 'storage:list', 'deleteUser', `revoke:it.gostash.web:r-web:refresh_token:${REVOKE}`]);
+    expect(state.queue.get('it.gostash.web')).toMatchObject({ status: 'pending', refresh_token: 'r-web' });
+  });
+
+  it('answers 200 deleted:true even if the post-deletion phase itself blows up (everything reported pending)', async () => {
+    state.tokens = [WEB, IOS];
+    log.mockImplementation((...args: unknown[]) => {
+      if (String(args[0]).includes('Apple done')) throw new Error('logger down');
+    });
+    const res = await del();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.deleted).toBe(true);
+    // revokeStaged finished before the throw, so its real counts are what the caller gets
+    expect(body.apple).toEqual({ revoked: 2, failed: 0, pending: 0, invalid: 0 });
+    expect(state.calls).toContain('deleteUser');
+  });
+
   it('still deletes when Apple refuses the revoke, leaving the token queued for the sweep', async () => {
-    state.tokens = [{ client_id: 'it.gostash.web', refresh_token: 'r-web' }];
+    state.tokens = [WEB];
     state.revokeStatus = 503;
     const res = await del();
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ deleted: true, apple: { revoked: 0, failed: 1, pending: 1, invalid: 0 } });
-    expect(state.calls).toEqual(['queue:it.gostash.web', 'deleteUser', `revoke:it.gostash.web:r-web:refresh_token:${REVOKE}`]);
+    expect(state.calls).toEqual(['queue:it.gostash.web', 'storage:list', 'deleteUser', `revoke:it.gostash.web:r-web:refresh_token:${REVOKE}`]);
     expect(state.queue.get('it.gostash.web')).toMatchObject({ status: 'pending', refresh_token: 'r-web', attempts: 1, last_error: 'apple 503' });
   });
 
   it('treats Apple’s invalid_grant as terminal: nothing to retry, token dropped, account deleted', async () => {
-    state.tokens = [{ client_id: 'it.gostash.web', refresh_token: 'r-web' }];
+    state.tokens = [WEB];
     state.revokeStatus = 400;
     state.revokeBody = JSON.stringify({ error: 'invalid_grant' });
     const res = await del();
     expect(await res.json()).toMatchObject({ deleted: true, apple: { revoked: 0, failed: 0, pending: 0, invalid: 1 } });
     expect(state.queue.get('it.gostash.web')).toMatchObject({ status: 'invalid', refresh_token: null, last_error: 'invalid_grant' });
-    expect(state.calls).toEqual(['queue:it.gostash.web', 'deleteUser', `revoke:it.gostash.web:r-web:refresh_token:${REVOKE}`]);
+    expect(state.calls).toEqual(['queue:it.gostash.web', 'storage:list', 'deleteUser', `revoke:it.gostash.web:r-web:refresh_token:${REVOKE}`]);
   });
 
   it('skips Apple entirely for an account without Apple tokens', async () => {
     const res = await del();
     expect(await res.json()).toMatchObject({ deleted: true, apple: { revoked: 0, failed: 0, pending: 0, invalid: 0 } });
-    expect(state.calls).toEqual(['deleteUser']);
+    expect(state.calls).toEqual(['storage:list', 'deleteUser']);
     expect(state.queue.size).toBe(0);
   });
 
   it('queues the tokens and still deletes when the Apple secrets are missing (Apple never contacted)', async () => {
     delete state.env.APPLE_KEY_ID;
-    state.tokens = [{ client_id: 'it.gostash.web', refresh_token: 'r-web' }, { client_id: 'it.gostash.stash', refresh_token: 'r-ios' }];
+    state.tokens = [WEB, IOS];
     const res = await del();
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ deleted: true, apple: { revoked: 0, failed: 2, pending: 2, invalid: 0 } });
-    expect(state.calls).toEqual(['queue:it.gostash.web,it.gostash.stash', 'deleteUser']);
+    expect(state.calls).toEqual(['queue:it.gostash.web,it.gostash.stash', 'storage:list', 'deleteUser']);
     expect(state.queue.get('it.gostash.web')).toMatchObject({ status: 'pending', refresh_token: 'r-web', attempts: 1 });
     expect(String(state.queue.get('it.gostash.web')!.last_error)).toMatch(/secrets missing/);
     expect(logged()).not.toMatch(/r-web|r-ios|eyJ/);
   });
 
   it('counts an unreachable Apple as pending and still deletes', async () => {
-    state.tokens = [{ client_id: 'it.gostash.web', refresh_token: 'r-web' }];
+    state.tokens = [WEB];
     state.fetchError = new Error('network down');
     const res = await del();
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ deleted: true, apple: { revoked: 0, failed: 1, pending: 1, invalid: 0 } });
-    expect(state.calls).toEqual(['queue:it.gostash.web', 'deleteUser', `revoke:it.gostash.web:r-web:refresh_token:${REVOKE}`]);
+    expect(state.calls).toEqual(['queue:it.gostash.web', 'storage:list', 'deleteUser', `revoke:it.gostash.web:r-web:refresh_token:${REVOKE}`]);
     expect(state.queue.get('it.gostash.web')).toMatchObject({ status: 'pending', refresh_token: 'r-web', last_error: 'network down' });
     // A stalled Apple ends the same way: the request carries an 8 s timeout, whose abort lands in the same catch.
     expect(timeout.mock.calls).toEqual([[8_000]]);
