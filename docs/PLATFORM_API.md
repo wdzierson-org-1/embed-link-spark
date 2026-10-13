@@ -738,8 +738,8 @@ live tokens); only Apple's status and error code reach its log.
 Same auth rules as the `POST` (agent tokens and anonymous sessions refused); no body.
 `200 { "apple_identity": true, "stored": false, "clients": [{ "client": "ios" | "web", "obtained_at": "…" }] }`
 — `apple_identity`: the account carries a Sign in with Apple identity; `stored`: at least one
-refresh token is on file for revocation; `clients`: one entry per stored audience, newest
-exchange date each. `503 { error: "apple_tokens_unavailable", retryable: true }` when the table
+refresh token is on file for revocation; `clients`: one entry per stored audience; `obtained_at` is when
+that audience's token was first stored (a later exchange replaces the token, not the date). `503 { error: "apple_tokens_unavailable", retryable: true }` when the table
 cannot be read — distinct from `200 { stored: false }`: a `503`, a timeout or any transport error is
 never evidence that no token exists. Native clients call it before `delete-account`: when `apple_identity && !stored`,
 ask the person to re-authorize with Apple and `POST` the fresh code first; if they decline or it
